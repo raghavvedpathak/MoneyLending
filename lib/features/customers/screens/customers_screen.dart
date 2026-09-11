@@ -309,6 +309,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
         title: const Text('Customers'),
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'customers_fab',
         onPressed: _showAddCustomerDialog,
         icon: const Icon(Icons.person_add),
         label: const Text('New Customer'),

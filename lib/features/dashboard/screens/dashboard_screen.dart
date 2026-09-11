@@ -3,10 +3,8 @@ import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
-import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../../entry/screens/add_entry_screen.dart';
-import '../../payments/screens/add_payment_screen.dart';
 import '../viewmodels/dashboard_viewmodel.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -42,21 +40,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  void _openAddEntry() async {
+  void _openAddEntry([RecordType? type]) async {
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AddEntryScreen(initialType: _currentTab),
-      ),
-    );
-    if (result == true && mounted) {
-      setState(() {});
-    }
-  }
-
-  void _openAddPayment(LedgerRecord record) async {
-    final result = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => AddPaymentScreen(record: record),
+        builder: (_) => AddEntryScreen(initialType: type ?? _currentTab),
       ),
     );
     if (result == true && mounted) {
@@ -80,433 +67,461 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddEntry,
+        heroTag: 'dashboard_fab',
+        onPressed: () => _openAddEntry(_currentTab),
         icon: const Icon(Icons.add),
         label: Text(_currentTab == RecordType.GIVEN ? 'New Loan Given' : 'New Loan Taken'),
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          _loadSettings();
+          await _loadSettings();
           setState(() {});
         },
-        child: CustomScrollView(
-          slivers: [
-            // 1. Metric Summary Cards
-            SliverToBoxAdapter(
-              child: FutureBuilder<List<LedgerRecord>>(
-                future: _recordRepository.getAllActiveRecordsOnce(),
-                builder: (context, snapshot) {
-                  final records = snapshot.data ?? [];
-                  final dashboardData = CalculationEngine.getDashboard(records, DateTime.now());
+        child: StreamBuilder<List<LedgerRecord>>(
+          stream: _recordRepository.getAllActiveRecords(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isTabletOrWide = constraints.maxWidth >= 720;
-                        if (isTabletOrWide) {
-                          return Row(
-                            children: [
-                              Expanded(
-                                child: _MetricCard(
-                                  title: 'Total Given (Lent)',
-                                  value: CurrencyFormatter.format(dashboardData.totalPrincipalGiven),
-                                  icon: Icons.arrow_outward_rounded,
-                                  color: AppTheme.accentCyan,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _MetricCard(
-                                  title: 'Total Taken (Borrowed)',
-                                  value: CurrencyFormatter.format(dashboardData.totalPrincipalTaken),
-                                  icon: Icons.arrow_downward_rounded,
-                                  color: AppTheme.emerald,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _MetricCard(
-                                  title: 'Accrued Interest',
-                                  value: CurrencyFormatter.format(dashboardData.totalInterestAccruedGiven),
-                                  icon: Icons.trending_up_rounded,
-                                  color: AppTheme.goldDark,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _MetricCard(
-                                  title: 'Total Due (Given)',
-                                  value: CurrencyFormatter.format(dashboardData.totalDueGiven),
-                                  icon: Icons.account_balance_wallet_rounded,
-                                  color: AppTheme.rose,
-                                ),
-                              ),
-                            ],
-                          );
-                        }
+            final records = snapshot.data ?? [];
+            final dashboardData = CalculationEngine.getDashboard(records, DateTime.now());
 
-                        return Column(
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _MetricCard(
-                                    title: 'Total Given (Lent)',
-                                    value: CurrencyFormatter.format(dashboardData.totalPrincipalGiven),
-                                    icon: Icons.arrow_outward_rounded,
-                                    color: AppTheme.accentCyan,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _MetricCard(
-                                    title: 'Total Taken (Borrowed)',
-                                    value: CurrencyFormatter.format(dashboardData.totalPrincipalTaken),
-                                    icon: Icons.arrow_downward_rounded,
-                                    color: AppTheme.emerald,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _MetricCard(
-                                    title: 'Accrued Interest',
-                                    value: CurrencyFormatter.format(dashboardData.totalInterestAccruedGiven),
-                                    icon: Icons.trending_up_rounded,
-                                    color: AppTheme.goldDark,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _MetricCard(
-                                    title: 'Total Due (Given)',
-                                    value: CurrencyFormatter.format(dashboardData.totalDueGiven),
-                                    icon: Icons.account_balance_wallet_rounded,
-                                    color: AppTheme.rose,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        );
-                      },
+            final givenRecords = records.where((r) => r.isGiven).toList();
+            final takenRecords = records.where((r) => r.isTaken).toList();
+
+            final givenCount = givenRecords.length;
+            final takenCount = takenRecords.length;
+
+            final avgRateGiven = givenCount > 0
+                ? (givenRecords.map((r) => r.interestRate).reduce((a, b) => a + b) / givenCount)
+                : 0.0;
+            final avgRateTaken = takenCount > 0
+                ? (takenRecords.map((r) => r.interestRate).reduce((a, b) => a + b) / takenCount)
+                : 0.0;
+
+            double totalCollateralValueGiven = 0.0;
+            int totalCollateralItemsCount = 0;
+            for (final r in givenRecords) {
+              for (final item in r.items) {
+                totalCollateralItemsCount++;
+                totalCollateralValueGiven += (item.itemValue ?? calculateItemValue(item));
+              }
+            }
+
+            final netPrincipal = dashboardData.totalPrincipalGiven - dashboardData.totalPrincipalTaken;
+            final netDue = dashboardData.totalDueGiven - dashboardData.totalDueTaken;
+
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final isTabletOrWide = constraints.maxWidth >= 720;
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+                  children: [
+                    // 1. Executive Net Position Summary Card
+                    _NetPositionCard(
+                      netPrincipal: netPrincipal,
+                      netDue: netDue,
+                      totalGivenPrincipal: dashboardData.totalPrincipalGiven,
+                      totalTakenPrincipal: dashboardData.totalPrincipalTaken,
+                      activeGivenCount: givenCount,
+                      activeTakenCount: takenCount,
                     ),
-                  );
-                },
-              ),
-            ),
+                    const SizedBox(height: 16),
 
-            // 2. Collection Alert Section (§5.3 & §5.4 / [FIX-FEAT-OVERSHOOT-1])
-            SliverToBoxAdapter(
-              child: StreamBuilder<List<CollectionAlertCardData>>(
-                stream: _viewModel.collectionAlertCards,
-                builder: (context, snapshot) {
-                  final cards = snapshot.data ?? _viewModel.currentAlertCards;
-                  final hasAlerts = cards.any((c) => c.isTriggered);
+                    // 2. Collateral Risk & Market Alerts
+                    _CollateralAlertsSection(viewModel: _viewModel),
+                    const SizedBox(height: 16),
 
-                  if (!hasAlerts) {
-                    return StreamBuilder<bool>(
-                      stream: _viewModel.alertsLoaded,
-                      builder: (context, loadedSnap) {
-                        final loaded = loadedSnap.data ?? _viewModel.isAlertsLoaded;
-                        if (!loaded) return const SizedBox.shrink();
-                        return Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          decoration: AppTheme.bannerDecoration(AppTheme.emerald),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.check_circle_rounded, color: AppTheme.emerald, size: 20),
-                              SizedBox(width: 10),
-                              Text(
-                                'All active loans have healthy collateral today',
-                                style: TextStyle(color: AppTheme.emerald, fontWeight: FontWeight.w600, fontSize: 13),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    );
-                  }
-
-                  final alertCards = cards.where((c) => c.isTriggered).toList();
-
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: AppTheme.bannerDecoration(AppTheme.gold, borderRadius: 14),
-                    child: ExpansionTile(
-                      initiallyExpanded: true,
-                      leading: const Icon(Icons.warning_amber_rounded, color: AppTheme.gold),
-                      title: Text(
-                        'Collateral Risk Alerts (${alertCards.length})',
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.gold),
-                      ),
-                      subtitle: const Text(
-                        'Live market drop or projected 2-month interest overshoot',
-                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                      ),
-                      children: alertCards.map((alert) {
-                        return ListTile(
-                          dense: true,
-                          title: Text(
-                            '${alert.record.customerName ?? "Customer"} • ${alert.record.transactionId}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text(
-                            'Principal: ${CurrencyFormatter.format(alert.record.principalAmount)} | '
-                            'Collateral: ${CurrencyFormatter.format(alert.currentCollateralValue)}',
-                          ),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              if (alert.isCollateralUnderwater)
-                                Text('DROP RISK', style: AppTheme.badgeTextStyle(AppTheme.rose, fontSize: 11)),
-                              if (alert.isOvershoot)
-                                Text('OVERSHOOT', style: AppTheme.badgeTextStyle(AppTheme.goldDark, fontSize: 11)),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            // 3. Tab Filter (Given vs Taken)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: SegmentedButton<RecordType>(
-                  segments: const [
-                    ButtonSegment(
-                      value: RecordType.GIVEN,
-                      label: Text('Given (Money Lent)'),
-                      icon: Icon(Icons.arrow_upward_rounded),
-                    ),
-                    ButtonSegment(
-                      value: RecordType.TAKEN,
-                      label: Text('Taken (Money Borrowed)'),
-                      icon: Icon(Icons.arrow_downward_rounded),
-                    ),
-                  ],
-                  selected: {_currentTab},
-                  onSelectionChanged: (val) {
-                    setState(() => _currentTab = val.first);
-                  },
-                ),
-              ),
-            ),
-
-            // 4. Live Record List
-            StreamBuilder<List<LedgerRecord>>(
-              stream: _recordRepository.getAllActiveRecords().map(
-                (list) => list.where((r) => r.type == _currentTab).toList(),
-              ),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                  return const SliverFillRemaining(
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-
-                final records = snapshot.data ?? [];
-                if (records.isEmpty) {
-                  return SliverFillRemaining(
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    // 3. Responsive Given and Taken Views
+                    if (isTabletOrWide) ...[
+                      // Tablet & Desktop: Side-by-side Given & Taken deep dive
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            _currentTab == RecordType.GIVEN
-                                ? Icons.account_balance_wallet_outlined
-                                : Icons.savings_outlined,
-                            size: 64,
-                            color: AppTheme.textMuted,
+                          Expanded(
+                            child: _GivenPortfolioCard(
+                              activeCount: givenCount,
+                              principal: dashboardData.totalPrincipalGiven,
+                              accruedInterest: dashboardData.totalInterestAccruedGiven,
+                              totalDue: dashboardData.totalDueGiven,
+                              avgRate: avgRateGiven,
+                              collateralValue: totalCollateralValueGiven,
+                              collateralItemsCount: totalCollateralItemsCount,
+                              onAddGiven: () => _openAddEntry(RecordType.GIVEN),
+                            ),
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _currentTab == RecordType.GIVEN
-                                ? 'No active loan given records'
-                                : 'No active borrowing records',
-                            style: const TextStyle(fontSize: 16, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Click the button below to add your first record',
-                            style: TextStyle(fontSize: 13, color: AppTheme.textMuted),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _TakenPortfolioCard(
+                              activeCount: takenCount,
+                              principal: dashboardData.totalPrincipalTaken,
+                              accruedInterest: dashboardData.totalInterestAccruedTaken,
+                              totalDue: dashboardData.totalDueTaken,
+                              avgRate: avgRateTaken,
+                              onAddTaken: () => _openAddEntry(RecordType.TAKEN),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  );
-                }
-
-                return SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final record = records[index];
-                      final financials = CalculationEngine.calculateRecordFinancials(record, DateTime.now());
-
-                      return Card(
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () => _openAddPayment(record),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                                          child: Text(
-                                            record.transactionId,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                              color: AppTheme.gold,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          record.customerName ?? 'Customer',
-                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                        ),
-                                      ],
-                                    ),
-                                    _StatusBadge(status: record.status),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Principal', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
-                                        Text(
-                                          CurrencyFormatter.format(record.principalAmount),
-                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                        ),
-                                      ],
-                                    ),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Rate', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
-                                        Text(
-                                          '${record.interestRate.toStringAsFixed(1)}%/mo',
-                                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                                        ),
-                                      ],
-                                    ),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        const Text('Total Due', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
-                                        Text(
-                                          CurrencyFormatter.format(financials.totalDue),
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppTheme.rose,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const Divider(height: 20),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'Started: ${AppDateFormatter.formatDate(record.startDate)}',
-                                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                                    ),
-                                    TextButton.icon(
-                                      onPressed: () => _openAddPayment(record),
-                                      icon: const Icon(Icons.payment_rounded, size: 16),
-                                      label: const Text('Record Payment'),
-                                      style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
+                    ] else ...[
+                      // Smartphone: Tab selector + Selected Portfolio Card
+                      SegmentedButton<RecordType>(
+                        segments: [
+                          ButtonSegment(
+                            value: RecordType.GIVEN,
+                            label: Text('Given ($givenCount)'),
+                            icon: const Icon(Icons.arrow_upward_rounded),
                           ),
+                          ButtonSegment(
+                            value: RecordType.TAKEN,
+                            label: Text('Taken ($takenCount)'),
+                            icon: const Icon(Icons.arrow_downward_rounded),
+                          ),
+                        ],
+                        selected: {_currentTab},
+                        onSelectionChanged: (val) {
+                          setState(() => _currentTab = val.first);
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      if (_currentTab == RecordType.GIVEN)
+                        _GivenPortfolioCard(
+                          activeCount: givenCount,
+                          principal: dashboardData.totalPrincipalGiven,
+                          accruedInterest: dashboardData.totalInterestAccruedGiven,
+                          totalDue: dashboardData.totalDueGiven,
+                          avgRate: avgRateGiven,
+                          collateralValue: totalCollateralValueGiven,
+                          collateralItemsCount: totalCollateralItemsCount,
+                          onAddGiven: () => _openAddEntry(RecordType.GIVEN),
+                        )
+                      else
+                        _TakenPortfolioCard(
+                          activeCount: takenCount,
+                          principal: dashboardData.totalPrincipalTaken,
+                          accruedInterest: dashboardData.totalInterestAccruedTaken,
+                          totalDue: dashboardData.totalDueTaken,
+                          avgRate: avgRateTaken,
+                          onAddTaken: () => _openAddEntry(RecordType.TAKEN),
                         ),
-                      );
-                    },
-                    childCount: records.length,
-                  ),
+                    ],
+                  ],
                 );
               },
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 80)),
-          ],
+            );
+          },
         ),
       ),
     );
   }
 }
 
-class _MetricCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
+/// Executive Net Lending Position Banner
+class _NetPositionCard extends StatelessWidget {
+  final double netPrincipal;
+  final double netDue;
+  final double totalGivenPrincipal;
+  final double totalTakenPrincipal;
+  final int activeGivenCount;
+  final int activeTakenCount;
 
-  const _MetricCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
+  const _NetPositionCard({
+    required this.netPrincipal,
+    required this.netDue,
+    required this.totalGivenPrincipal,
+    required this.totalTakenPrincipal,
+    required this.activeGivenCount,
+    required this.activeTakenCount,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: AppTheme.metricCardDecoration,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.cardDark,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.gold.withValues(alpha: 0.35), width: 1.2),
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.cardDark,
+            AppTheme.gold.withValues(alpha: 0.08),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(
+              const Row(
+                children: [
+                  Icon(Icons.account_balance_wallet_rounded, color: AppTheme.gold, size: 22),
+                  SizedBox(width: 8),
+                  Text(
+                    'Net Lending Exposure',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: AppTheme.badgeDecoration(AppTheme.gold),
                 child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
+                  '${activeGivenCount + activeTakenCount} Total Active',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.gold,
+                  ),
                 ),
               ),
-              const SizedBox(width: 4),
-              Icon(icon, size: 18, color: color),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
             child: Text(
-              value,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
+              CurrencyFormatter.format(netPrincipal),
+              style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.gold,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Net outstanding balance: ${CurrencyFormatter.format(netDue)}',
+            style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+          ),
+          const Divider(height: 28, color: AppTheme.borderDark),
+          Row(
+            children: [
+              Expanded(
+                child: _NetStatMini(
+                  label: 'Capital Lent (Given)',
+                  amount: CurrencyFormatter.format(totalGivenPrincipal),
+                  count: '$activeGivenCount loans',
+                  color: AppTheme.accentCyan,
+                  icon: Icons.arrow_outward_rounded,
+                ),
+              ),
+              Container(width: 1, height: 40, color: AppTheme.borderDark),
+              Expanded(
+                child: _NetStatMini(
+                  label: 'Capital Borrowed (Taken)',
+                  amount: CurrencyFormatter.format(totalTakenPrincipal),
+                  count: '$activeTakenCount borrowings',
+                  color: AppTheme.emerald,
+                  icon: Icons.arrow_downward_rounded,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NetStatMini extends StatelessWidget {
+  final String label;
+  final String amount;
+  final String count;
+  final Color color;
+  final IconData icon;
+
+  const _NetStatMini({
+    required this.label,
+    required this.amount,
+    required this.count,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: AppTheme.textMuted, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              amount,
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: color),
+            ),
+          ),
+          Text(
+            count,
+            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Detailed Portfolio Card for GIVEN (Money Lent)
+class _GivenPortfolioCard extends StatelessWidget {
+  final int activeCount;
+  final double principal;
+  final double accruedInterest;
+  final double totalDue;
+  final double avgRate;
+  final double collateralValue;
+  final int collateralItemsCount;
+  final VoidCallback onAddGiven;
+
+  const _GivenPortfolioCard({
+    required this.activeCount,
+    required this.principal,
+    required this.accruedInterest,
+    required this.totalDue,
+    required this.avgRate,
+    required this.collateralValue,
+    required this.collateralItemsCount,
+    required this.onAddGiven,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.cardDark,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.accentCyan.withValues(alpha: 0.35)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.arrow_outward_rounded, color: AppTheme.accentCyan, size: 24),
+                  SizedBox(width: 8),
+                  Text(
+                    'Given (Money Lent)',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: AppTheme.badgeDecoration(AppTheme.accentCyan),
+                child: Text(
+                  '$activeCount Active Loans',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.accentCyan,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _MetricRow(
+            label: 'Total Principal Lent',
+            value: CurrencyFormatter.format(principal),
+            color: AppTheme.accentCyan,
+            icon: Icons.payments_outlined,
+          ),
+          const SizedBox(height: 10),
+          _MetricRow(
+            label: 'Accrued Interest Receivable',
+            value: CurrencyFormatter.format(accruedInterest),
+            color: AppTheme.gold,
+            icon: Icons.trending_up_rounded,
+          ),
+          const SizedBox(height: 10),
+          _MetricRow(
+            label: 'Total Outstanding Receivable',
+            value: CurrencyFormatter.format(totalDue),
+            color: AppTheme.rose,
+            isHighlight: true,
+            icon: Icons.account_balance_wallet_outlined,
+          ),
+          const Divider(height: 24, color: AppTheme.borderDark),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Average Interest Rate', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+              Text(
+                '${avgRate.toStringAsFixed(1)}% / month',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Pledged Collateral Value', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+              Text(
+                '${CurrencyFormatter.format(collateralValue)} ($collateralItemsCount items)',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.gold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onAddGiven,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Add Loan Given'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.accentCyan,
+                side: const BorderSide(color: AppTheme.accentCyan),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ),
         ],
@@ -515,26 +530,273 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-class _StatusBadge extends StatelessWidget {
-  final RecordStatus status;
+/// Detailed Portfolio Card for TAKEN (Money Borrowed)
+class _TakenPortfolioCard extends StatelessWidget {
+  final int activeCount;
+  final double principal;
+  final double accruedInterest;
+  final double totalDue;
+  final double avgRate;
+  final VoidCallback onAddTaken;
 
-  const _StatusBadge({required this.status});
+  const _TakenPortfolioCard({
+    required this.activeCount,
+    required this.principal,
+    required this.accruedInterest,
+    required this.totalDue,
+    required this.avgRate,
+    required this.onAddTaken,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isSettled = status == RecordStatus.SETTLED;
-    final accent = isSettled ? AppTheme.accentCyan : AppTheme.emerald;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: AppTheme.badgeDecoration(accent),
-      child: Text(
-        isSettled ? 'SETTLED' : 'ACTIVE',
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: accent,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.cardDark,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.emerald.withValues(alpha: 0.35)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.arrow_downward_rounded, color: AppTheme.emerald, size: 24),
+                  SizedBox(width: 8),
+                  Text(
+                    'Taken (Money Borrowed)',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: AppTheme.badgeDecoration(AppTheme.emerald),
+                child: Text(
+                  '$activeCount Active Borrowings',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.emerald,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _MetricRow(
+            label: 'Total Principal Borrowed',
+            value: CurrencyFormatter.format(principal),
+            color: AppTheme.emerald,
+            icon: Icons.savings_outlined,
+          ),
+          const SizedBox(height: 10),
+          _MetricRow(
+            label: 'Accrued Interest Payable',
+            value: CurrencyFormatter.format(accruedInterest),
+            color: AppTheme.goldDark,
+            icon: Icons.trending_up_rounded,
+          ),
+          const SizedBox(height: 10),
+          _MetricRow(
+            label: 'Total Outstanding Repayable',
+            value: CurrencyFormatter.format(totalDue),
+            color: AppTheme.emerald,
+            isHighlight: true,
+            icon: Icons.price_check_rounded,
+          ),
+          const Divider(height: 24, color: AppTheme.borderDark),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Average Borrowing Rate', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+              Text(
+                '${avgRate.toStringAsFixed(1)}% / month',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Settlement Priority', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+              Text('Interest-First Rule', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.gold)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onAddTaken,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Add Borrowing Taken'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.emerald,
+                side: const BorderSide(color: AppTheme.emerald),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final IconData icon;
+  final bool isHighlight;
+
+  const _MetricRow({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+    this.isHighlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isHighlight ? color.withValues(alpha: 0.12) : AppTheme.subCardDark,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isHighlight ? color.withValues(alpha: 0.4) : AppTheme.borderDark,
         ),
       ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isHighlight ? FontWeight.w600 : FontWeight.normal,
+                  color: isHighlight ? Colors.white : AppTheme.textSecondary,
+                ),
+              ),
+            ],
+          ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Collateral Alerts Section (Drop Risk and Overshoot Warnings)
+class _CollateralAlertsSection extends StatelessWidget {
+  final DashboardViewModel viewModel;
+
+  const _CollateralAlertsSection({required this.viewModel});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<CollectionAlertCardData>>(
+      stream: viewModel.collectionAlertCards,
+      builder: (context, snapshot) {
+        final cards = snapshot.data ?? viewModel.currentAlertCards;
+        final hasAlerts = cards.any((c) => c.isTriggered);
+
+        if (!hasAlerts) {
+          return StreamBuilder<bool>(
+            stream: viewModel.alertsLoaded,
+            builder: (context, loadedSnap) {
+              final loaded = loadedSnap.data ?? viewModel.isAlertsLoaded;
+              if (!loaded) return const SizedBox.shrink();
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: AppTheme.bannerDecoration(AppTheme.emerald),
+                child: const Row(
+                  children: [
+                    Icon(Icons.check_circle_rounded, color: AppTheme.emerald, size: 20),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'All active Given loans have healthy collateral coverage today',
+                        style: TextStyle(color: AppTheme.emerald, fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        }
+
+        final alertCards = cards.where((c) => c.isTriggered).toList();
+
+        return Container(
+          decoration: AppTheme.bannerDecoration(AppTheme.gold, borderRadius: 16),
+          child: ExpansionTile(
+            initiallyExpanded: true,
+            leading: const Icon(Icons.warning_amber_rounded, color: AppTheme.gold),
+            title: Text(
+              'Collateral Risk Alerts (${alertCards.length})',
+              style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.gold),
+            ),
+            subtitle: const Text(
+              'Live market price drop or projected 2-month interest overshoot',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            ),
+            children: alertCards.map((alert) {
+              return ListTile(
+                dense: true,
+                title: Text(
+                  '${alert.record.customerName ?? "Customer"} • ${alert.record.transactionId}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  'Principal: ${CurrencyFormatter.format(alert.record.principalAmount)} | '
+                  'Collateral: ${CurrencyFormatter.format(alert.currentCollateralValue)}',
+                ),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (alert.isCollateralUnderwater)
+                      Text('DROP RISK', style: AppTheme.badgeTextStyle(AppTheme.rose, fontSize: 11)),
+                    if (alert.isOvershoot)
+                      Text('OVERSHOOT', style: AppTheme.badgeTextStyle(AppTheme.goldDark, fontSize: 11)),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
     );
   }
 }

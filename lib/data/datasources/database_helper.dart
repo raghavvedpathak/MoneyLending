@@ -55,8 +55,10 @@ class DatabaseHelper {
 
   Future<Database> _initDB(String filePath) async {
     if (Platform.isWindows) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
+      if (databaseFactory != databaseFactoryFfi) {
+        sqfliteFfiInit();
+        databaseFactory = databaseFactoryFfi;
+      }
       final docDir = await getApplicationDocumentsDirectory();
       final dbPath = p.join(docDir.path, 'MoneyLending', filePath);
       final dir = Directory(p.dirname(dbPath));

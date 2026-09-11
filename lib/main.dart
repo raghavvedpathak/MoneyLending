@@ -12,8 +12,10 @@ void main() async {
 
   // Initialize SQLite FFI for Windows desktop
   if (Platform.isWindows) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+    if (databaseFactory != databaseFactoryFfi) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
   }
 
   // Initialize central dependency injection container

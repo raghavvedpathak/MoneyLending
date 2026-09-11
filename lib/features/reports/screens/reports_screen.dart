@@ -117,6 +117,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           ),
           floatingActionButton: isFabVisible
               ? FloatingActionButton.extended(
+                  heroTag: 'reports_fab',
                   onPressed: () => _handleFabAction(currentFabAction),
                   icon: const Icon(Icons.picture_as_pdf_rounded),
                   label: Text(
@@ -222,17 +223,26 @@ class _CustomerStatementTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uniqueMap = <String, Customer>{};
+    for (final c in customers) {
+      uniqueMap[c.id] = c;
+    }
+    final customerList = uniqueMap.values.toList();
+    final currentSelection = (selectedCustomer != null && uniqueMap.containsKey(selectedCustomer!.id))
+        ? uniqueMap[selectedCustomer!.id]
+        : null;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         DropdownButtonFormField<Customer>(
-          initialValue: selectedCustomer,
+          initialValue: currentSelection,
           decoration: const InputDecoration(
             labelText: 'Select Customer for Statement',
             prefixIcon: Icon(Icons.person_search),
           ),
-          items: customers.map((c) {
-            return DropdownMenuItem(
+          items: customerList.map((c) {
+            return DropdownMenuItem<Customer>(
               value: c,
               child: Text('${c.name} (${c.displayId})'),
             );

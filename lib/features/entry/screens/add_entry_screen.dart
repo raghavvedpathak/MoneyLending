@@ -351,32 +351,45 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                   const SizedBox(height: 20),
 
                   // Customer Selection
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<Customer>(
-                          initialValue: _selectedCustomer,
-                          decoration: const InputDecoration(
-                            labelText: 'Customer *',
-                            prefixIcon: Icon(Icons.person_rounded),
+                  Builder(
+                    builder: (context) {
+                      final uniqueMap = <String, Customer>{};
+                      for (final c in _customers) {
+                        uniqueMap[c.id] = c;
+                      }
+                      final customerList = uniqueMap.values.toList();
+                      final currentSelection = (_selectedCustomer != null && uniqueMap.containsKey(_selectedCustomer!.id))
+                          ? uniqueMap[_selectedCustomer!.id]
+                          : null;
+
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<Customer>(
+                              initialValue: currentSelection,
+                              decoration: const InputDecoration(
+                                labelText: 'Customer *',
+                                prefixIcon: Icon(Icons.person_rounded),
+                              ),
+                              items: customerList.map((c) {
+                                return DropdownMenuItem<Customer>(
+                                  value: c,
+                                  child: Text('${c.name} (${c.displayId})'),
+                                );
+                              }).toList(),
+                              onChanged: (c) => setState(() => _selectedCustomer = c),
+                              validator: (c) => c == null ? 'Please select a customer' : null,
+                            ),
                           ),
-                          items: _customers.map((c) {
-                            return DropdownMenuItem(
-                              value: c,
-                              child: Text('${c.name} (${c.displayId})'),
-                            );
-                          }).toList(),
-                          onChanged: (c) => setState(() => _selectedCustomer = c),
-                          validator: (c) => c == null ? 'Please select a customer' : null,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filledTonal(
-                        icon: const Icon(Icons.person_add_rounded),
-                        tooltip: 'Quick Add Customer',
-                        onPressed: _showQuickAddCustomerDialog,
-                      ),
-                    ],
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            icon: const Icon(Icons.person_add_rounded),
+                            tooltip: 'Quick Add Customer',
+                            onPressed: _showQuickAddCustomerDialog,
+                          ),
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: 16),
 
