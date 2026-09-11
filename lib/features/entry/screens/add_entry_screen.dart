@@ -142,12 +142,18 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  key: ValueKey('category_$_itemCategory'),
                   initialValue: _itemCategory,
+                  isExpanded: true,
+                  dropdownColor: AppTheme.cardDark,
+                  menuMaxHeight: 350,
+                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                  icon: const Icon(Icons.arrow_drop_down, color: AppTheme.gold),
                   decoration: const InputDecoration(labelText: 'Category'),
                   items: const [
-                    DropdownMenuItem(value: 'GOLD', child: Text('Gold')),
-                    DropdownMenuItem(value: 'SILVER', child: Text('Silver')),
-                    DropdownMenuItem(value: 'OTHER', child: Text('Other Item')),
+                    DropdownMenuItem(value: 'GOLD', child: Text('Gold', style: TextStyle(color: AppTheme.textPrimary))),
+                    DropdownMenuItem(value: 'SILVER', child: Text('Silver', style: TextStyle(color: AppTheme.textPrimary))),
+                    DropdownMenuItem(value: 'OTHER', child: Text('Other Item', style: TextStyle(color: AppTheme.textPrimary))),
                   ],
                   onChanged: (val) {
                     if (val != null) {
@@ -366,15 +372,26 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<Customer>(
+                              key: ValueKey('add_entry_cust_${currentSelection?.id ?? 'none'}'),
                               initialValue: currentSelection,
+                              isExpanded: true,
+                              dropdownColor: AppTheme.cardDark,
+                              menuMaxHeight: 350,
+                              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                              icon: const Icon(Icons.arrow_drop_down, color: AppTheme.gold),
+                              hint: const Text('Select a customer', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
                               decoration: const InputDecoration(
                                 labelText: 'Customer *',
-                                prefixIcon: Icon(Icons.person_rounded),
+                                prefixIcon: Icon(Icons.person_rounded, color: AppTheme.gold),
                               ),
                               items: customerList.map((c) {
                                 return DropdownMenuItem<Customer>(
                                   value: c,
-                                  child: Text('${c.name} (${c.displayId})'),
+                                  child: Text(
+                                    '${c.name} (${c.displayId})',
+                                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 );
                               }).toList(),
                               onChanged: (c) => setState(() => _selectedCustomer = c),

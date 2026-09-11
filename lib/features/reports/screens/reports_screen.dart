@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
@@ -22,6 +23,8 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   final RecordRepository _recordRepository = sl<RecordRepository>();
   final PdfShareService _pdfShareService = sl<PdfShareService>();
 
+  StreamSubscription<List<Customer>>? _customerSub;
+  StreamSubscription<Customer?>? _selectedCustomerSub;
   List<Customer> _customers = [];
 
   @override
@@ -34,20 +37,26 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
         _viewModel.setActiveSubTab(_tabController.index);
       }
     });
-    _loadCustomers();
-  }
 
-  Future<void> _loadCustomers() async {
-    final customers = await _customerRepository.getAllCustomers().first;
-    if (mounted) {
-      setState(() {
-        _customers = customers;
-      });
-    }
+    _customerSub = _customerRepository.getAllCustomers().listen((customers) {
+      if (mounted) {
+        setState(() {
+          _customers = customers;
+        });
+      }
+    });
+
+    _selectedCustomerSub = _viewModel.selectedCustomerStream.listen((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
   void dispose() {
+    _customerSub?.cancel();
+    _selectedCustomerSub?.cancel();
     _tabController.dispose();
     _viewModel.dispose();
     super.dispose();
@@ -208,7 +217,7 @@ class _OverviewTab extends StatelessWidget {
   }
 }
 
-class _CustomerStatementTab extends StatelessWidget {
+class _CustomerStatementTab extends StatefulWidget {
   final List<Customer> customers;
   final Customer? selectedCustomer;
   final ValueChanged<Customer?> onCustomerChanged;
@@ -222,53 +231,116 @@ class _CustomerStatementTab extends StatelessWidget {
   });
 
   @override
+  State<_CustomerStatementTab> createState() => _CustomerStatementTabState();
+}
+
+class _CustomerStatementTabState extends State<_CustomerStatementTab>
+    with AutomaticKeepAliveClientMixin {
+  Customer? _currentCustomer;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentCustomer = widget.selectedCustomer;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomerStatementTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedCustomer != oldWidget.selectedCustomer) {
+      setState(() {
+        _currentCustomer = widget.selectedCustomer;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final uniqueMap = <String, Customer>{};
-    for (final c in customers) {
+    for (final c in widget.customers) {
       uniqueMap[c.id] = c;
     }
     final customerList = uniqueMap.values.toList();
-    final currentSelection = (selectedCustomer != null && uniqueMap.containsKey(selectedCustomer!.id))
-        ? uniqueMap[selectedCustomer!.id]
+    final currentSelection = (_currentCustomer != null && uniqueMap.containsKey(_currentCustomer!.id))
+        ? uniqueMap[_currentCustomer!.id]
         : null;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         DropdownButtonFormField<Customer>(
+          key: ValueKey('customer_stmt_dropdown_${currentSelection?.id ?? 'none'}'),
           initialValue: currentSelection,
-          decoration: const InputDecoration(
+          isExpanded: true,
+          dropdownColor: AppTheme.cardDark,
+          menuMaxHeight: 350,
+          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+          icon: const Icon(Icons.arrow_drop_down, color: AppTheme.gold),
+          decoration: InputDecoration(
             labelText: 'Select Customer for Statement',
-            prefixIcon: Icon(Icons.person_search),
+            prefixIcon: const Icon(Icons.person_search, color: AppTheme.gold),
+            hintText: customerList.isEmpty
+                ? 'No customers available'
+                : 'Tap to choose a customer',
+            hintStyle: const TextStyle(color: AppTheme.textMuted, fontSize: 14),
           ),
           items: customerList.map((c) {
             return DropdownMenuItem<Customer>(
               value: c,
-              child: Text('${c.name} (${c.displayId})'),
+              child: Text(
+                '${c.name} (${c.displayId})',
+                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                overflow: TextOverflow.ellipsis,
+              ),
             );
           }).toList(),
-          onChanged: onCustomerChanged,
+          onChanged: (Customer? newCustomer) {
+            setState(() {
+              _currentCustomer = newCustomer;
+            });
+            widget.onCustomerChanged(newCustomer);
+          },
         ),
         const SizedBox(height: 16),
-        if (selectedCustomer == null)
-          const Padding(
-            padding: EdgeInsets.all(32),
+        if (currentSelection == null)
+          Padding(
+            padding: const EdgeInsets.all(32),
             child: Center(
-              child: Text('Select a customer above to preview and export their statement.'),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.assignment_ind_outlined, size: 48, color: AppTheme.textMuted.withValues(alpha: 0.5)),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Select a customer above to preview and export their statement.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+                  ),
+                ],
+              ),
             ),
           )
         else
-          FutureBuilder<List<LedgerRecord>>(
-            future: recordRepository.getRecordsByCustomer(selectedCustomer!.id).first,
+          StreamBuilder<List<LedgerRecord>>(
+            stream: widget.recordRepository.getRecordsByCustomer(currentSelection.id),
             builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              if (!snapshot.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
 
               final records = snapshot.data!;
-              final customerReports = CalculationEngine.getCustomerReport([selectedCustomer!], records, DateTime.now());
+              final customerReports = CalculationEngine.getCustomerReport([currentSelection], records, DateTime.now());
               final report = customerReports.isNotEmpty
                   ? customerReports.first
                   : CustomerReport(
-                      customer: selectedCustomer!,
+                      customer: currentSelection,
                       activeRecordCount: 0,
                       totalPrincipal: 0.0,
                       totalInterestAccrued: 0.0,
@@ -276,6 +348,7 @@ class _CustomerStatementTab extends StatelessWidget {
                     );
 
               return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Card(
                     color: AppTheme.subCardDark,
@@ -283,7 +356,10 @@ class _CustomerStatementTab extends StatelessWidget {
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         children: [
-                          _ReportRow(label: 'Customer ID', value: selectedCustomer!.displayId),
+                          _ReportRow(label: 'Customer ID', value: currentSelection.displayId),
+                          _ReportRow(label: 'Customer Name', value: currentSelection.name),
+                          if (currentSelection.phone != null && currentSelection.phone!.isNotEmpty)
+                            _ReportRow(label: 'Phone', value: currentSelection.phone!),
                           _ReportRow(label: 'Active Loans', value: '${report.activeRecordCount}'),
                           _ReportRow(label: 'Total Principal Lent', value: CurrencyFormatter.format(report.totalPrincipal)),
                           _ReportRow(label: 'Total Interest Accrued', value: CurrencyFormatter.format(report.totalInterestAccrued)),
@@ -294,15 +370,40 @@ class _CustomerStatementTab extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  ...records.map((r) {
-                    return Card(
-                      child: ListTile(
-                        title: Text('${r.transactionId} • ${CurrencyFormatter.format(r.principalAmount)}'),
-                        subtitle: Text('Started: ${AppDateFormatter.formatDate(r.startDate)} • Rate: ${r.interestRate}%/mo'),
-                        trailing: Text(r.status.name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (records.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(
+                        child: Text(
+                          'No loan records found for this customer.',
+                          style: TextStyle(color: AppTheme.textMuted),
+                        ),
                       ),
-                    );
-                  }),
+                    )
+                  else
+                    ...records.map((r) {
+                      final isGiven = r.type == RecordType.GIVEN;
+                      return Card(
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: isGiven ? AppTheme.accentCyan.withValues(alpha: 0.15) : AppTheme.emerald.withValues(alpha: 0.15),
+                            child: Icon(
+                              isGiven ? Icons.arrow_outward_rounded : Icons.arrow_downward_rounded,
+                              color: isGiven ? AppTheme.accentCyan : AppTheme.emerald,
+                            ),
+                          ),
+                          title: Text('${r.transactionId} • ${CurrencyFormatter.format(r.principalAmount)}'),
+                          subtitle: Text('Started: ${AppDateFormatter.formatDate(r.startDate)} • Rate: ${r.interestRate}%/mo'),
+                          trailing: Text(
+                            r.status.name.toUpperCase(),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: r.status == RecordStatus.ACTIVE ? AppTheme.gold : AppTheme.textMuted,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
                 ],
               );
             },

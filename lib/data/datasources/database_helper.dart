@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:synchronized/synchronized.dart';
 
+import '../../core/utils/uuid_generator.dart';
 import '../../domain/errors/record_linked_taken_exception.dart';
 import '../models/customer_entity.dart';
 import '../models/item_rate_entity.dart';
@@ -55,17 +56,13 @@ class DatabaseHelper {
 
   Future<Database> _initDB(String filePath) async {
     if (Platform.isWindows) {
-      if (databaseFactory != databaseFactoryFfi) {
-        sqfliteFfiInit();
-        databaseFactory = databaseFactoryFfi;
-      }
       final docDir = await getApplicationDocumentsDirectory();
       final dbPath = p.join(docDir.path, 'MoneyLending', filePath);
       final dir = Directory(p.dirname(dbPath));
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
-      return await databaseFactory.openDatabase(
+      return await databaseFactoryFfi.openDatabase(
         dbPath,
         options: OpenDatabaseOptions(
           version: 1,
@@ -363,6 +360,48 @@ class DatabaseHelper {
 
         return toInsert;
       });
+    });
+  }
+
+  /// Atomically updates a record and its collateral items within a single SQLite transaction.
+  Future<void> updateRecordWithDetails({
+    required RecordEntity record,
+    List<LedgerItemEntity> items = const [],
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.update(
+        'records',
+        record.toMap(),
+        where: 'id = ?',
+        whereArgs: [record.id],
+      );
+
+      // Re-sync collateral items for this record
+      await txn.delete(
+        'ledger_items',
+        where: 'recordId = ?',
+        whereArgs: [record.id],
+      );
+
+      for (final item in items) {
+        final itemToInsert = item.recordId.isEmpty
+            ? LedgerItemEntity(
+                id: item.id.isEmpty ? AppUuid.generate() : item.id,
+                recordId: record.id,
+                name: item.name,
+                itemCategory: item.itemCategory,
+                description: item.description,
+                weight: item.weight,
+                purity: item.purity,
+                rate: item.rate,
+                itemValue: item.itemValue,
+                lendPercentage: item.lendPercentage,
+                lendableAmount: item.lendableAmount,
+              )
+            : item;
+        await txn.insert('ledger_items', itemToInsert.toMap(), conflictAlgorithm: ConflictAlgorithm.abort);
+      }
     });
   }
 

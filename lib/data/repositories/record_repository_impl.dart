@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../../core/utils/app_date_formatter.dart';
+import '../../core/utils/uuid_generator.dart';
 import '../../domain/models/ledger_item.dart';
 import '../../domain/models/ledger_record.dart';
 import '../../domain/models/payment.dart';
@@ -225,9 +226,25 @@ class RecordRepositoryImpl implements RecordRepository {
 
   @override
   Future<void> updateRecord(LedgerRecord record) async {
-    final db = await _dbHelper.database;
     final entity = _toEntity(record);
-    await db.update('records', entity.toMap(), where: 'id = ?', whereArgs: [entity.id]);
+    final itemEntities = record.items.map((item) => LedgerItemEntity(
+      id: item.id.isEmpty ? AppUuid.generate() : item.id,
+      recordId: entity.id,
+      name: item.name,
+      itemCategory: item.itemCategory,
+      description: item.description,
+      weight: item.weight,
+      purity: item.purity,
+      rate: item.rate,
+      itemValue: item.itemValue,
+      lendPercentage: item.lendPercentage,
+      lendableAmount: item.lendableAmount,
+    )).toList();
+
+    await _dbHelper.updateRecordWithDetails(
+      record: entity,
+      items: itemEntities,
+    );
     await _refreshStreams();
   }
 

@@ -7,6 +7,7 @@ import '../../../core/utils/app_date_formatter.dart';
 import '../../../core/utils/uuid_generator.dart';
 import '../../../domain/domain.dart';
 import '../../entry/screens/add_entry_screen.dart';
+import '../../entry/screens/loan_details_screen.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -279,16 +280,86 @@ class _CustomersScreenState extends State<CustomersScreen> {
                   ...records.map((r) {
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text('${r.transactionId} • ${CurrencyFormatter.format(r.principalAmount)}'),
-                        subtitle: Text(
-                          '${r.type.name.toUpperCase()} • Started ${AppDateFormatter.formatDate(r.startDate)}',
-                        ),
-                        trailing: Text(
-                          r.status.name.toUpperCase(),
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: r.status == RecordStatus.ACTIVE ? AppTheme.emerald : AppTheme.accentCyan,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () async {
+                          Navigator.of(ctx).pop();
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => LoanDetailsScreen(record: r),
+                            ),
+                          );
+                          if (mounted) {
+                            _loadCustomers();
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: AppTheme.badgeDecoration(AppTheme.gold),
+                                          child: Text(
+                                            r.transactionId,
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.gold),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: AppTheme.badgeDecoration(r.isGiven ? AppTheme.accentCyan : AppTheme.emerald),
+                                          child: Text(
+                                            r.isGiven ? 'GIVEN' : 'TAKEN',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: r.isGiven ? AppTheme.accentCyan : AppTheme.emerald,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Principal: ${CurrencyFormatter.format(r.principalAmount)}  |  ${r.interestRate}%/mo',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Started ${AppDateFormatter.formatDate(r.startDate)}',
+                                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: AppTheme.badgeDecoration(r.isActive ? AppTheme.emerald : AppTheme.accentCyan),
+                                    child: Text(
+                                      r.status.name.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: r.isActive ? AppTheme.emerald : AppTheme.accentCyan,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppTheme.textMuted),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ),
