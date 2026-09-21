@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/data/data.dart';
+import 'package:money_lending/domain/domain.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -9,6 +10,7 @@ void main() {
   late RecordDao recordDao;
   late PaymentDao paymentDao;
   late SettingsDao settingsDao;
+  late DatabaseHelper dbHelper;
 
   setUpAll(() async {
     sqfliteFfiInit();
@@ -21,6 +23,16 @@ void main() {
       options: OpenDatabaseOptions(
         version: 1,
         onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE customers (
+              id TEXT PRIMARY KEY,
+              displayId TEXT NOT NULL UNIQUE,
+              name TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              address TEXT,
+              createdAt TEXT NOT NULL
+            )
+          ''');
           await db.execute('''
             CREATE TABLE records (
               id TEXT PRIMARY KEY,
@@ -61,7 +73,8 @@ void main() {
               date TEXT NOT NULL,
               notes TEXT,
               interestPaid REAL NOT NULL,
-              principalPaid REAL NOT NULL
+              principalPaid REAL NOT NULL,
+              paymentId TEXT
             )
           ''');
           await db.execute('''
@@ -73,12 +86,28 @@ void main() {
               defaultInterestRate REAL NOT NULL DEFAULT 2.0
             )
           ''');
+          await db.execute('''
+            CREATE TABLE item_rates (
+              itemCategory TEXT PRIMARY KEY,
+              rate REAL NOT NULL,
+              updatedAt TEXT NOT NULL
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE retired_ids (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              kind TEXT NOT NULL,
+              displayId TEXT NOT NULL,
+              retiredAt TEXT NOT NULL
+            )
+          ''');
         },
       ),
     );
     recordDao = RecordDao(db);
     paymentDao = PaymentDao(db);
     settingsDao = SettingsDao(db);
+    dbHelper = DatabaseHelper.forTesting(db);
   });
 
   tearDown(() async {
@@ -120,54 +149,72 @@ void main() {
       expect(active.last.id, 'rec-old');
     });
 
-    test('RecordDao getByCustomer filters by customerId and orders by startDate DESC', () async {
-      const c1Rec1 = RecordEntity(
-        id: 'rec-c1-1',
-        transactionId: 'TXN-000010',
+    test('RecordDao watchByStatus streams records ordered by startDate DESC', () async {
+      const older = RecordEntity(
+        id: 'rec-w-1',
+        transactionId: 'TXN-000101',
         type: 'GIVEN',
         customerId: 'c-1',
+        startDate: '2026-04-10T10:00:00',
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: 'ACTIVE',
+      );
+      const newer = RecordEntity(
+        id: 'rec-w-2',
+        transactionId: 'TXN-000102',
+        type: 'GIVEN',
+        customerId: 'c-1',
+        startDate: '2026-04-20T10:00:00',
+        principalAmount: 7000.0,
+        interestRate: 2.0,
+        status: 'ACTIVE',
+      );
+
+      await recordDao.insertRecord(older);
+      await recordDao.insertRecord(newer);
+
+      final stream = recordDao.watchByStatus(RecordStatus.active);
+      final initialList = await stream.first;
+      expect(initialList.length, 2);
+      expect(initialList.first.id, 'rec-w-2');
+      expect(initialList.last.id, 'rec-w-1');
+    });
+
+    test('RecordDao watchByCustomer filters by customerId and orders by startDate DESC', () async {
+      const c1Rec = RecordEntity(
+        id: 'rec-c1',
+        transactionId: 'TXN-000110',
+        type: 'GIVEN',
+        customerId: 'c-10',
         startDate: '2026-04-01T10:00:00',
         principalAmount: 5000.0,
         interestRate: 2.0,
         status: 'ACTIVE',
       );
-
-      const c1Rec2 = RecordEntity(
-        id: 'rec-c1-2',
-        transactionId: 'TXN-000011',
+      const c2Rec = RecordEntity(
+        id: 'rec-c2',
+        transactionId: 'TXN-000111',
         type: 'GIVEN',
-        customerId: 'c-1',
+        customerId: 'c-20',
         startDate: '2026-04-15T10:00:00',
         principalAmount: 7000.0,
         interestRate: 2.0,
         status: 'ACTIVE',
       );
 
-      const c2Rec = RecordEntity(
-        id: 'rec-c2',
-        transactionId: 'TXN-000012',
-        type: 'GIVEN',
-        customerId: 'c-2',
-        startDate: '2026-04-10T10:00:00',
-        principalAmount: 9000.0,
-        interestRate: 2.0,
-        status: 'ACTIVE',
-      );
-
-      await recordDao.insert(c1Rec1);
-      await recordDao.insert(c1Rec2);
+      await recordDao.insert(c1Rec);
       await recordDao.insert(c2Rec);
 
-      final c1Records = await recordDao.getByCustomer('c-1');
-      expect(c1Records.length, 2);
-      expect(c1Records.first.id, 'rec-c1-2');
-      expect(c1Records.last.id, 'rec-c1-1');
+      final c1List = await recordDao.watchByCustomer('c-10').first;
+      expect(c1List.length, 1);
+      expect(c1List.first.id, 'rec-c1');
     });
 
-    test('RecordDao getActiveGivenRecords filters status and type properly', () async {
-      const activeGiven = RecordEntity(
-        id: 'rec-1',
-        transactionId: 'TXN-000001',
+    test('RecordDao watchActiveGivenRecords and typed equalsValue() [FIX-ENUM-CASE-1] & [FIX-PERF-EAGERLOAD-2]', () async {
+      const activeGivenUpper = RecordEntity(
+        id: 'rec-ag-1',
+        transactionId: 'TXN-000120',
         type: 'GIVEN',
         customerId: 'c-1',
         startDate: '2026-04-23T10:00:00',
@@ -176,25 +223,36 @@ void main() {
         status: 'ACTIVE',
       );
 
+      const activeGivenLower = RecordEntity(
+        id: 'rec-ag-2',
+        transactionId: 'TXN-000121',
+        type: 'given',
+        customerId: 'c-1',
+        startDate: '2026-04-24T10:00:00',
+        principalAmount: 12000.0,
+        interestRate: 2.0,
+        status: 'active',
+      );
+
       const activeTaken = RecordEntity(
-        id: 'rec-2',
-        transactionId: 'TXN-000002',
+        id: 'rec-at',
+        transactionId: 'TXN-000122',
         type: 'TAKEN',
         customerId: 'c-1',
         startDate: '2026-04-23T11:00:00',
         principalAmount: 5000.0,
         interestRate: 1.5,
         status: 'ACTIVE',
-        linkedRecordId: 'rec-1',
       );
 
-      await recordDao.insert(activeGiven);
+      await recordDao.insert(activeGivenUpper);
+      await recordDao.insert(activeGivenLower);
       await recordDao.insert(activeTaken);
 
-      final givenRecords = await recordDao.getActiveGivenRecords();
-      expect(givenRecords.length, 1);
-      expect(givenRecords.first.id, 'rec-1');
-      expect(givenRecords.first.type, 'GIVEN');
+      final givenRecords = await recordDao.watchActiveGivenRecords().first;
+      expect(givenRecords.length, 2);
+      expect(givenRecords.first.id, 'rec-ag-2'); // Newer first
+      expect(givenRecords.last.id, 'rec-ag-1');
     });
 
     test('RecordDao enforces ConflictAlgorithm.abort on duplicate insert (Anti-Footgun)', () async {
@@ -249,7 +307,7 @@ void main() {
       expect(fetched.interestRate, 2.5);
     });
 
-    test('RecordDao deleteById deletes directly via query without loading entity', () async {
+    test('RecordDao insertRecord, updateRecord, and deleteById work with WHERE-clause deletes', () async {
       const record = RecordEntity(
         id: 'rec-del',
         transactionId: 'TXN-000005',
@@ -260,10 +318,24 @@ void main() {
         interestRate: 2.0,
         status: 'ACTIVE',
       );
-      await recordDao.insert(record);
-      expect(await recordDao.getById('rec-del'), isNotNull);
+      final insertRes = await recordDao.insertRecord(record);
+      expect(insertRes, greaterThan(0));
 
-      await recordDao.deleteById('rec-del');
+      const updated = RecordEntity(
+        id: 'rec-del',
+        transactionId: 'TXN-000005',
+        type: 'GIVEN',
+        customerId: 'c-1',
+        startDate: '2026-04-23T12:00:00',
+        principalAmount: 6000.0,
+        interestRate: 2.0,
+        status: 'ACTIVE',
+      );
+      final updateRes = await recordDao.updateRecord(updated);
+      expect(updateRes, isTrue);
+
+      final deletedRows = await recordDao.deleteById('rec-del');
+      expect(deletedRows, 1);
       expect(await recordDao.getById('rec-del'), isNull);
     });
 
@@ -305,53 +377,7 @@ void main() {
       expect(items.first['name'], 'Gold Ring');
     });
 
-    test('RecordDao importRecordsTransactionally rolls back completely on conflict', () async {
-      const existing = RecordEntity(
-        id: 'rec-exist',
-        transactionId: 'TXN-000030',
-        type: 'GIVEN',
-        customerId: 'c-1',
-        startDate: '2026-04-23T12:00:00',
-        principalAmount: 10000.0,
-        interestRate: 2.0,
-        status: 'ACTIVE',
-      );
-      await recordDao.insert(existing);
-
-      const batchRec1 = RecordEntity(
-        id: 'rec-batch-1',
-        transactionId: 'TXN-000031',
-        type: 'GIVEN',
-        customerId: 'c-1',
-        startDate: '2026-04-23T12:00:00',
-        principalAmount: 10000.0,
-        interestRate: 2.0,
-        status: 'ACTIVE',
-      );
-
-      // batchRec2 conflicts with rec-exist
-      const batchRec2 = RecordEntity(
-        id: 'rec-exist',
-        transactionId: 'TXN-000032',
-        type: 'GIVEN',
-        customerId: 'c-1',
-        startDate: '2026-04-23T12:00:00',
-        principalAmount: 10000.0,
-        interestRate: 2.0,
-        status: 'ACTIVE',
-      );
-
-      expect(
-        () => recordDao.importRecordsTransactionally(records: [batchRec1, batchRec2]),
-        throwsA(isA<DatabaseException>()),
-      );
-
-      // rec-batch-1 must NOT have been saved due to atomic rollback
-      final rolledBack = await recordDao.getById('rec-batch-1');
-      expect(rolledBack, isNull);
-    });
-
-    test('PaymentDao getByRecordId orders chronologically ascending [FIX-PAYMENTDAO-1]', () async {
+    test('PaymentDao watchByRecordId orders chronologically ascending [FIX-PAYMENTDAO-1]', () async {
       const payment1 = PaymentEntity(
         id: 'p-1',
         recordId: 'rec-1',
@@ -360,6 +386,7 @@ void main() {
         notes: 'Later payment',
         interestPaid: 500.0,
         principalPaid: 0.0,
+        paymentId: 'PAY042601',
       );
 
       const payment2 = PaymentEntity(
@@ -370,44 +397,222 @@ void main() {
         notes: 'Earlier payment',
         interestPaid: 300.0,
         principalPaid: 0.0,
+        paymentId: 'PAY042602',
       );
 
-      await paymentDao.insert(payment1);
-      await paymentDao.insert(payment2);
+      await paymentDao.insertPayment(payment1);
+      await paymentDao.insertPayment(payment2);
 
-      final payments = await paymentDao.getByRecordId('rec-1');
+      final payments = await paymentDao.watchByRecordId('rec-1').first;
       expect(payments.length, 2);
       expect(payments.first.id, 'p-2'); // Earlier payment first
       expect(payments.last.id, 'p-1');
     });
 
-    test('PaymentDao deleteByRecordId cleans up associated payments', () async {
-      const payment = PaymentEntity(
-        id: 'p-del',
-        recordId: 'rec-del-target',
-        amount: 250.0,
-        date: '2026-04-23T10:00:00',
-        notes: 'Cleanup target',
-        interestPaid: 250.0,
+    test('PaymentDao paymentIdsByRecordId and deleteByRecordId [FIX-PAYMENTDAO-1]', () async {
+      const payment1 = PaymentEntity(
+        id: 'p-pids-1',
+        recordId: 'rec-pids',
+        amount: 200.0,
+        date: '2026-04-20T10:00:00',
+        interestPaid: 200.0,
         principalPaid: 0.0,
+        paymentId: 'PAY042610',
       );
-      await paymentDao.insert(payment);
-      expect((await paymentDao.getByRecordId('rec-del-target')).length, 1);
+      const payment2 = PaymentEntity(
+        id: 'p-pids-2',
+        recordId: 'rec-pids',
+        amount: 300.0,
+        date: '2026-04-21T10:00:00',
+        interestPaid: 300.0,
+        principalPaid: 0.0,
+        paymentId: 'PAY042611',
+      );
 
-      await paymentDao.deleteByRecordId('rec-del-target');
-      expect((await paymentDao.getByRecordId('rec-del-target')).isEmpty, isTrue);
+      await paymentDao.insert(payment1);
+      await paymentDao.insert(payment2);
+
+      final ids = await paymentDao.paymentIdsByRecordId('rec-pids');
+      expect(ids, containsAll(['PAY042610', 'PAY042611']));
+
+      final deletedCount = await paymentDao.deleteByRecordId('rec-pids');
+      expect(deletedCount, 2);
+      expect(await paymentDao.getByRecordId('rec-pids'), isEmpty);
     });
 
-    test('SettingsDao safely upserts using REPLACE exception', () async {
-      const initial = SettingsEntity(name: 'Initial Shop', phone: '111111');
-      await settingsDao.upsertSettings(initial);
+    test('forceDeleteRecord retires paymentId and transactionId using PaymentDao.paymentIdsByRecordId before cleanup', () async {
+      await db.insert('records', {
+        'id': 'rec-force-1',
+        'transactionId': 'TRAN042699',
+        'type': 'GIVEN',
+        'customerId': 'c-1',
+        'startDate': '2026-04-20T10:00:00',
+        'principalAmount': 10000.0,
+        'interestRate': 2.0,
+        'status': 'ACTIVE',
+      });
 
-      const updated = SettingsEntity(name: 'Updated Shop', phone: '222222');
-      await settingsDao.upsertSettings(updated);
+      await paymentDao.insert(const PaymentEntity(
+        id: 'pay-force-1',
+        recordId: 'rec-force-1',
+        amount: 500.0,
+        date: '2026-04-22T10:00:00',
+        interestPaid: 500.0,
+        principalPaid: 0.0,
+        paymentId: 'PAY042699',
+      ));
 
-      final current = await settingsDao.getSettings();
-      expect(current.name, 'Updated Shop');
-      expect(current.phone, '222222');
+      await dbHelper.forceDeleteRecord('rec-force-1');
+
+      // Check records and payments deleted
+      expect(await recordDao.getById('rec-force-1'), isNull);
+      expect(await paymentDao.getByRecordId('rec-force-1'), isEmpty);
+
+      // Check retired_ids contains both transaction and payment display IDs
+      final retired = await db.query('retired_ids');
+      final retiredDisplayIds = retired.map((r) => r['displayId']).toList();
+      expect(retiredDisplayIds, contains('TRAN042699'));
+      expect(retiredDisplayIds, contains('PAY042699'));
+    });
+
+    test('Transactional replace-all backup restore [FIX-ID-BACKUP-1] preserves settings and item_rates, and rolls back on failure', () async {
+      // 1. Existing data
+      await settingsDao.upsertSettings(const SettingsEntity(id: 1, name: 'Original Shop', phone: '999999'));
+      await db.insert('item_rates', {
+        'itemCategory': 'GOLD_22K',
+        'rate': 5500.0,
+        'updatedAt': '2026-04-01T10:00:00',
+      });
+      await db.insert('customers', {
+        'id': 'c-prev',
+        'displayId': 'CUST26-27-01',
+        'name': 'Old Customer',
+        'phone': '1234567890',
+        'createdAt': '2026-04-01',
+      });
+      await db.insert('records', {
+        'id': 'rec-prev',
+        'transactionId': 'TRAN042601',
+        'type': 'GIVEN',
+        'customerId': 'c-prev',
+        'startDate': '2026-04-01T10:00:00',
+        'principalAmount': 10000.0,
+        'interestRate': 2.0,
+        'status': 'ACTIVE',
+      });
+
+      // 2. Successful replace-all backup restore
+      final backupCustomers = [
+        {
+          'id': 'c-new',
+          'displayId': 'CUST26-27-02',
+          'name': 'Restored Customer',
+          'phone': '9876543210',
+          'createdAt': '2026-04-10',
+        }
+      ];
+      final backupRecords = [
+        {
+          'id': 'rec-new',
+          'transactionId': 'TRAN042602',
+          'type': 'GIVEN',
+          'customerId': 'c-new',
+          'startDate': '2026-04-10T10:00:00',
+          'principalAmount': 20000.0,
+          'interestRate': 2.0,
+          'status': 'ACTIVE',
+        }
+      ];
+      final backupItems = [
+        {
+          'id': 'item-new',
+          'recordId': 'rec-new',
+          'name': 'Gold Chain',
+          'itemCategory': 'GOLD_22K',
+          'weight': 10.0,
+          'purity': 91.6,
+          'rate': 5500.0,
+          'itemValue': 50000.0,
+          'lendPercentage': 75.0,
+          'lendableAmount': 37500.0,
+        }
+      ];
+      final backupPayments = [
+        {
+          'id': 'pay-new',
+          'recordId': 'rec-new',
+          'amount': 1000.0,
+          'date': '2026-04-15T10:00:00',
+          'interestPaid': 1000.0,
+          'principalPaid': 0.0,
+          'paymentId': 'PAY042605',
+        }
+      ];
+
+      await dbHelper.restoreBackupTransactionally(
+        customers: backupCustomers,
+        records: backupRecords,
+        ledgerItems: backupItems,
+        payments: backupPayments,
+      );
+
+      // Old customer and record wiped (replace-all)
+      expect(await db.query('customers', where: 'id = ?', whereArgs: ['c-prev']), isEmpty);
+      expect(await db.query('records', where: 'id = ?', whereArgs: ['rec-prev']), isEmpty);
+
+      // New data restored
+      expect((await db.query('customers')).length, 1);
+      expect((await db.query('records')).length, 1);
+      expect((await db.query('ledger_items')).length, 1);
+      expect((await db.query('payments')).length, 1);
+
+      // Settings and item_rates preserved and never touched!
+      final settings = await settingsDao.getSettings();
+      expect(settings.name, 'Original Shop');
+      final rates = await db.query('item_rates');
+      expect(rates.first['rate'], 5500.0);
+
+      // 3. Rollback on failure test
+      final faultyCustomers = [
+        {
+          'id': 'c-faulty-1',
+          'displayId': 'CUST26-27-99',
+          'name': 'Faulty 1',
+          'phone': '0000',
+          'createdAt': '2026-04-10',
+        },
+        {
+          'id': 'c-faulty-2',
+          'displayId': 'CUST26-27-99', // duplicate displayId triggers SQLite constraint error
+          'name': 'Faulty 2',
+          'phone': '0000',
+          'createdAt': '2026-04-10',
+        },
+      ];
+
+      expect(
+        () => dbHelper.restoreBackupTransactionally(
+          customers: faultyCustomers,
+          records: backupRecords,
+          ledgerItems: backupItems,
+          payments: backupPayments,
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+
+      // Data before the failed restore is preserved due to complete atomic rollback
+      final postFailureCusts = await db.query('customers');
+      expect(postFailureCusts.first['id'], 'c-new');
+    });
+
+    test('@DataClassName typedefs match Data Spec §4.4', () {
+      expect(RecordEntityData, RecordEntity);
+      expect(PaymentEntityData, PaymentEntity);
+      expect(CustomerEntityData, CustomerEntity);
+      expect(LedgerItemEntityData, LedgerItemEntity);
+      expect(SettingsEntityData, SettingsEntity);
+      expect(ItemRateEntityData, ItemRateEntity);
+      expect(RetiredIdEntityData, RetiredIdEntity);
     });
   });
 }

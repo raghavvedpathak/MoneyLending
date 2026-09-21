@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../core/calculations/util/date_extensions.dart';
 import '../../core/utils/app_date_formatter.dart';
 import '../../core/utils/uuid_generator.dart';
 import '../../domain/models/item_rate.dart';
@@ -26,14 +27,25 @@ class ItemRateRepositoryImpl implements ItemRateRepository {
   }
 
   ItemRate _toDomain(ItemRateEntity entity) {
+    final parsedEffective = AppDateFormatter.parseIso(entity.effectiveDate) ?? DateTime.now();
     return ItemRate(
       id: entity.id,
       itemCategory: entity.itemCategory,
       ratePerUnit: entity.ratePerUnit,
-      effectiveDate: AppDateFormatter.parseIso(entity.effectiveDate) ?? DateTime.now(),
+      effectiveDate: parsedEffective.dateOnly,
       updatedAt: AppDateFormatter.parseIso(entity.updatedAt) ?? DateTime.now(),
     );
   }
+
+  @override
+  Stream<ItemRate?> watchCurrentRate(String category) => getCurrentRate(category);
+
+  @override
+  Stream<List<ItemRate>> watchCurrentRates() => getCurrentRates();
+
+  @override
+  Stream<List<ItemRate>> watchRatesForDate(DateTime date) =>
+      getRatesForDate(AppDateFormatter.toIsoDate(date));
 
   @override
   Stream<ItemRate?> getCurrentRate(String category) async* {

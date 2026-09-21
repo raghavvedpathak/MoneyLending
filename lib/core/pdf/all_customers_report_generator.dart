@@ -38,9 +38,8 @@ class AllCustomersReport {
     required this.generatedDate,
   });
 
-  /// Generates the offline PDF document bytes using pure Dart / package:pdf.
-  /// Fully independent of platform channels and 100% testable on JVM/VM.
-  Future<Uint8List> buildPdf() async {
+  /// Builds the [pw.Document] widget tree for all customers report (§6.1).
+  pw.Document buildDocument() {
     final pdf = pw.Document();
 
     // Prepare table data rows with Overdue Flag
@@ -152,11 +151,11 @@ class AllCustomersReport {
               headers: [
                 'Customer Name',
                 'Customer ID',
-                'Active Loans',
-                'Principal Out',
-                'Accrued Interest',
+                'Active Records',
+                'Total Principal Out',
+                'Total Interest Accrued',
                 'Total Due',
-                'Status',
+                'Overdue Flag',
               ],
               data: tableData,
               headerStyle: pw.TextStyle(
@@ -192,7 +191,7 @@ class AllCustomersReport {
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Text(
-                  'Customers: ${customerReports.length} | Active Loans: $totalActiveRecords | Generated: ${AppDateFormatter.formatDateTime(generatedDate)}',
+                  'Total Customers: ${customerReports.length} | Total Active Records: $totalActiveRecords | Generated: ${AppDateFormatter.formatDateTime(generatedDate)}',
                   style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
                 ),
                 pw.Text(
@@ -206,7 +205,13 @@ class AllCustomersReport {
       ),
     );
 
-    return pdf.save();
+    return pdf;
+  }
+
+  /// Generates the offline PDF document bytes using pure Dart / package:pdf.
+  /// Fully independent of platform channels and 100% testable on JVM/VM.
+  Future<Uint8List> buildPdf() async {
+    return buildDocument().save();
   }
 
   static pw.Widget _buildMetricItem(String label, String value) {
@@ -248,7 +253,7 @@ AllCustomersReport generateAllCustomersReport(
 
   final now = effectiveToday ?? DateTime.now();
   final todayDate = DateTime(now.year, now.month, now.day);
-  final customerReports = CalculationEngine.getCustomerReport(customers, records, now);
+  final customerReports = CalculationEngine.getCustomerReport(customers, records, today: todayDate);
 
   final totalPrincipal = customerReports.fold<double>(
     0.0,

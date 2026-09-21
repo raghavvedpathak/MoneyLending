@@ -6,21 +6,21 @@
 sealed class UiState<T> {
   const UiState();
 
-  const factory UiState.loading() = UiLoading<T>;
-  const factory UiState.success(T data) = UiSuccess<T>;
-  const factory UiState.error(String message) = UiError<T>;
+  const factory UiState.loading() = Loading<T>;
+  const factory UiState.success(T data) = Success<T>;
+  const factory UiState.error(String message) = Error<T>;
 
-  bool get isLoading => this is UiLoading<T>;
-  bool get isSuccess => this is UiSuccess<T>;
-  bool get isError => this is UiError<T>;
+  bool get isLoading => this is Loading<T>;
+  bool get isSuccess => this is Success<T>;
+  bool get isError => this is Error<T>;
 
   T? get dataOrNull => switch (this) {
-        UiSuccess<T>(:final data) => data,
+        Success<T>(:final data) => data,
         _ => null,
       };
 
   String? get errorOrNull => switch (this) {
-        UiError<T>(:final message) => message,
+        Error<T>(:final message) => message,
         _ => null,
       };
 
@@ -30,9 +30,9 @@ sealed class UiState<T> {
     required R Function(String message) error,
   }) {
     return switch (this) {
-      UiLoading<T>() => loading(),
-      UiSuccess<T>(:final data) => success(data),
-      UiError<T>(:final message) => error(message),
+      Loading<T>() => loading(),
+      Success<T>(:final data) => success(data),
+      Error<T>(:final message) => error(message),
     };
   }
 
@@ -43,31 +43,31 @@ sealed class UiState<T> {
     required R Function() orElse,
   }) {
     return switch (this) {
-      UiLoading<T>() => loading != null ? loading() : orElse(),
-      UiSuccess<T>(:final data) => success != null ? success(data) : orElse(),
-      UiError<T>(:final message) => error != null ? error(message) : orElse(),
+      Loading<T>() => loading != null ? loading() : orElse(),
+      Success<T>(:final data) => success != null ? success(data) : orElse(),
+      Error<T>(:final message) => error != null ? error(message) : orElse(),
     };
   }
 }
 
-/// Loading state
-final class UiLoading<T> extends UiState<T> {
-  const UiLoading();
+/// Loading state (§2.5)
+final class Loading<T> extends UiState<T> {
+  const Loading();
 
   @override
   String toString() => 'UiState<$T>.loading()';
 
   @override
-  bool operator ==(Object other) => identical(this, other) || other is UiLoading<T>;
+  bool operator ==(Object other) => identical(this, other) || other is Loading<T>;
 
   @override
   int get hashCode => runtimeType.hashCode;
 }
 
-/// Success state with payload data
-final class UiSuccess<T> extends UiState<T> {
+/// Success state with payload data (§2.5)
+final class Success<T> extends UiState<T> {
   final T data;
-  const UiSuccess(this.data);
+  const Success(this.data);
 
   @override
   String toString() => 'UiState<$T>.success($data)';
@@ -75,16 +75,16 @@ final class UiSuccess<T> extends UiState<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is UiSuccess<T> && runtimeType == other.runtimeType && data == other.data;
+      other is Success<T> && runtimeType == other.runtimeType && data == other.data;
 
   @override
   int get hashCode => Object.hash(runtimeType, data);
 }
 
-/// Error state with failure message
-final class UiError<T> extends UiState<T> {
+/// Error state with failure message (§2.5)
+final class Error<T> extends UiState<T> {
   final String message;
-  const UiError(this.message);
+  const Error(this.message);
 
   @override
   String toString() => 'UiState<$T>.error($message)';
@@ -92,8 +92,13 @@ final class UiError<T> extends UiState<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is UiError<T> && runtimeType == other.runtimeType && message == other.message;
+      other is Error<T> && runtimeType == other.runtimeType && message == other.message;
 
   @override
   int get hashCode => Object.hash(runtimeType, message);
 }
+
+// Backwards-compatible aliases
+typedef UiLoading<T> = Loading<T>;
+typedef UiSuccess<T> = Success<T>;
+typedef UiError<T> = Error<T>;

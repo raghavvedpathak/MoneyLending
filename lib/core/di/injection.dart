@@ -9,6 +9,8 @@ import '../../domain/repositories/customer_repository.dart';
 import '../../domain/repositories/item_rate_repository.dart';
 import '../../domain/repositories/record_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
+import '../data/backup/backup.dart';
+import '../notifications/overdue_notification_service.dart';
 import '../pdf/pdf.dart';
 
 /// Central Dependency Injection container.
@@ -53,6 +55,24 @@ Future<void> initServiceLocator() async {
   if (!sl.isRegistered<PdfShareService>()) {
     sl.registerLazySingleton<PdfShareService>(
       () => PdfShareService(),
+    );
+  }
+
+  // 4. Core Services: Backup & Restore Service (§7.2)
+  if (!sl.isRegistered<BackupService>()) {
+    sl.registerLazySingleton<BackupService>(
+      () => BackupService(
+        dbHelper: sl<DatabaseHelper>(),
+        customerRepository: sl<CustomerRepository>(),
+        recordRepository: sl<RecordRepository>(),
+      ),
+    );
+  }
+
+  // 5. Core Services: Overdue Notification Service (§8)
+  if (!sl.isRegistered<OverdueNotificationService>()) {
+    sl.registerLazySingleton<OverdueNotificationService>(
+      () => OverdueNotificationService(),
     );
   }
 }

@@ -1,6 +1,16 @@
 import 'dart:math';
 import '../../domain/domain.dart';
+import 'interest/accrual_end_date.dart';
+import 'interest/allocate_payment.dart' as alloc;
+import 'interest/collection_alerts.dart' as coll_alerts;
+import 'interest/months_between.dart' as mb;
+import 'interest/months_between.dart' show addMonths;
 import 'util/date_extensions.dart';
+
+export 'interest/accrual_end_date.dart';
+export 'interest/allocate_payment.dart';
+export 'interest/collection_alerts.dart';
+export 'interest/months_between.dart';
 
 /// Pure Kotlin / Dart calculation engine (:core:calculations).
 ///
@@ -13,103 +23,51 @@ class CalculationEngine {
   /// itemValue = weight * (purity / 100) * rate
   /// lendableAmount = itemValue * (lendPercentage / 100)
   static double calculateItemValue(LedgerItem item) {
-    if (item.itemValue != null) return item.itemValue!;
-    final weight = item.weight ?? 0.0;
-    final purity = item.purity ?? 0.0;
-    final rate = item.rate ?? 0.0;
-    return weight * (purity / 100.0) * rate;
+    if (item.itemValue > 0) return item.itemValue;
+    return item.weight * (item.purity / 100.0) * item.rate;
   }
 
-  /// Computes total collateral value across all items in a record
+  /// Computes total collateral value across all items in a record (§5.1)
   static double calculateTotalItemValue(List<LedgerItem> items) {
     return items.fold<double>(
       0.0,
-      (sum, item) => sum + (item.itemValue ?? calculateItemValue(item)),
+      (sum, item) => sum + (item.itemValue > 0 ? item.itemValue : calculateItemValue(item)),
     );
   }
 
-  /// Two-branch half-month rounding (§5.2):
-  /// - When endDay >= startDay (positive dayDiff):
-  ///   * dayDiff > 15 -> +1.0 month
-  ///   * dayDiff > 0 -> +0.5 month
-  ///   * else -> +0.0 month
-  /// - When endDay < startDay (negative dayDiff, month rollover):
-  ///   * totalMonths is decremented by 1
-  ///   * daysInPrevMonth is computed AFTER totalMonths -= 1 decrement
-  ///   * adjustedDays = daysInPrevMonth - startDay + endDay
-  ///   * adjustedDays > 15 -> +1.0 month
-  ///   * adjustedDays > 0 -> +0.5 month
-  ///   * else -> +0.0 month
-  static double getMonthsBetween(DateTime start, DateTime end) {
-    final s = DateTime(start.year, start.month, start.day);
-    final e = DateTime(end.year, end.month, end.day);
+  /// Two-branch half-month rounding (§5.2).
+  /// Canonical implementation in interest/months_between.dart.
+  /// Both parameters MUST already be .dateOnly-truncated at the call site.
+  static double getMonthsBetween(DateTime start, DateTime end) =>
+      mb.getMonthsBetween(start, end);
 
-    if (e.isBefore(s)) return 0.0;
-
-    final years = e.year - s.year;
-    final months = e.month - s.month;
-    var totalMonths = (years * 12 + months).toDouble();
-    final startDay = s.day;
-    final endDay = e.day;
-    final dayDiff = endDay - startDay;
-
-    if (dayDiff < 0) {
-      totalMonths -= 1;
-      // daysInPrevMonth must be computed as start.plusMonths(totalMonths) AFTER the decrement:
-      final targetMonthIndex = (s.year * 12 + (s.month - 1)) + totalMonths.toInt();
-      final targetYear = targetMonthIndex ~/ 12;
-      final targetMonth = (targetMonthIndex % 12) + 1;
-      final daysInPrevMonth = DateTime(targetYear, targetMonth + 1, 0).day;
-
-      final adjustedDays = daysInPrevMonth - startDay + endDay;
-      if (adjustedDays > 15) {
-        totalMonths += 1.0;
-      } else if (adjustedDays > 0) {
-        totalMonths += 0.5;
-      }
-    } else {
-      if (dayDiff > 15) {
-        totalMonths += 1.0;
-      } else if (dayDiff > 0) {
-        totalMonths += 0.5;
-      }
-    }
-
-    return max(0.0, totalMonths);
-  }
-
-  /// Simple interest calculation for period: principal * rate * months / 100
-  static double calculateInterestForPeriod(
-    double principal,
-    double rate,
-    DateTime start,
-    DateTime end,
-  ) {
+  /// Simple interest calculation for period: principal * rate * months / 100 (§5.1)
+  static double calculateInterestForPeriod({
+    required double principal,
+    required double rate,
+    required DateTime start,
+    required DateTime end,
+  }) {
     final months = getMonthsBetween(start, end);
     return (principal * rate * months) / 100.0;
   }
 
   /// Splits a payment amount into interest and principal portions using interest-first rule (§5.2.4).
   ///
-  /// Outstanding interest is extinguished before any principal is reduced.
-  /// [paymentAmount] The amount the customer is paying now (must be > 0).
+  /// Outstanding interest is extinguished before any principal is reduced (§5.2.4).
+  /// [paymentAmount] The amount the customer is paying now.
   /// [outstandingInterest] Current accrued interest minus interest already paid.
   /// Compute via calculateRecordFinancials(record, today).outstandingInterest.
   ///
   /// Returns [PaymentAllocation] Pair(interestPaid, principalPaid).
-  static PaymentAllocation allocatePayment(
+  static (double interestPaid, double principalPaid) allocatePayment(
     double paymentAmount,
     double outstandingInterest,
-  ) {
-    final safePayment = max(0.0, paymentAmount);
-    final safeInterest = max(0.0, outstandingInterest);
-    final interestPaid = min(safePayment, safeInterest);
-    final principalPaid = safePayment - interestPaid;
-    return PaymentAllocation(
-      interestPaid: interestPaid,
-      principalPaid: principalPaid,
-    );
-  }
+  ) =>
+      alloc.allocatePayment(
+        paymentAmount: paymentAmount,
+        outstandingInterest: outstandingInterest,
+      );
 
   /// Core ledger engine (§5.1, §5.2.1, & §5.2.2).
   /// Computes financial totals, payments applied, and outstanding balances.
@@ -147,40 +105,50 @@ class CalculationEngine {
           outstandingInterest: 0.0,
           outstandingPrincipal: 0.0,
           totalDue: 0.0,
+          overpaymentAmount: max(0.0, principalPaid - record.principalAmount),
           principal: record.principalAmount,
           months: months,
         );
       }
 
       // 2. Edge case: settled with null calculatedInterest (legacy backup import)
-      // If settledDate is also null, return zeroed snapshot. NEVER use DateTime.now() in any settled fallback!
-      if (record.settledDate == null) {
-        final outstandingPrincipal = max(0.0, record.principalAmount - principalPaid);
+      // record.settledDate is DateTime? in the domain model — no string parsing needed.
+      // Just use the value directly; null means no settledDate on file.
+      final settledTarget = record.settledDate;
+      if (settledTarget == null) {
+        final principalPaidSoFar =
+            record.payments.fold(0.0, (s, p) => s + p.principalPaid);
+        // [FIX-FINANCIALS-OVERPAY-1] compute the raw (unfloored) delta once so
+        // both outstandingPrincipal and overpaymentAmount derive from the same number —
+        // flooring it twice in two different directions must never drift apart.
+        final rawOutstandingPrincipal = record.principalAmount - principalPaidSoFar;
         return Financials(
           totalInterest: 0.0,
-          totalPaid: totalPaid,
-          interestPaid: interestPaid,
-          principalPaid: principalPaid,
+          totalPaid: record.payments.fold(0.0, (s, p) => s + p.amount),
+          // BLK-10 FIX equivalent: all 8 fields must be supplied
+          interestPaid: record.payments.fold(0.0, (s, p) => s + p.interestPaid),
+          principalPaid: principalPaidSoFar,
           outstandingInterest: 0.0,
-          outstandingPrincipal: outstandingPrincipal,
-          totalDue: outstandingPrincipal,
+          outstandingPrincipal: max(0.0, rawOutstandingPrincipal),
+          totalDue: max(0.0, rawOutstandingPrincipal),
+          overpaymentAmount: max(0.0, -rawOutstandingPrincipal),
           principal: record.principalAmount,
           months: 0.0,
-        );
+        ); // never use DateTime.now() for settled records
       }
 
       // 3. Settled with null calculatedInterest but non-null settledDate:
-      // Recalculate using settledDate as targetDate. (Never use DateTime.now())
-      final settledTarget = record.settledDate!;
+      // If settledDate is non-null, use it as targetDate. (Never use DateTime.now())
       final months = getMonthsBetween(record.startDate, settledTarget);
       final totalInterest = calculateInterestForPeriod(
-        record.principalAmount,
-        record.interestRate,
-        record.startDate,
-        settledTarget,
+        principal: record.principalAmount,
+        rate: record.interestRate,
+        start: record.startDate,
+        end: settledTarget,
       );
       final remainingInterest = max(0.0, totalInterest - interestPaid);
-      final remainingPrincipal = max(0.0, record.principalAmount - principalPaid);
+      final rawOutstandingPrincipal = record.principalAmount - principalPaid;
+      final remainingPrincipal = max(0.0, rawOutstandingPrincipal);
       final totalDue = remainingPrincipal + remainingInterest;
 
       return Financials(
@@ -191,6 +159,7 @@ class CalculationEngine {
         outstandingInterest: remainingInterest,
         outstandingPrincipal: remainingPrincipal,
         totalDue: totalDue,
+        overpaymentAmount: max(0.0, -rawOutstandingPrincipal),
         principal: record.principalAmount,
         months: months,
       );
@@ -199,33 +168,39 @@ class CalculationEngine {
     // =========================================================================
     // ACTIVE RECORDS (§5.2.2 Full Algorithm)
     // =========================================================================
-    // Step 1: Determine effective target date.
-    // Use endDate?.takeIf { !it.isAfter(LocalDate.now()) } since endDate is LocalDate? in domain model.
-    final now = today ?? DateTime.now();
-    final todayDate = DateTime(now.year, now.month, now.day);
-    final targetDateOnly = DateTime(targetDate.year, targetDate.month, targetDate.day);
-    final effectiveTarget = (record.endDate != null && !record.endDate!.isAfter(todayDate))
-        ? DateTime(record.endDate!.year, record.endDate!.month, record.endDate!.day)
-        : targetDateOnly;
+    // Step 1: Determine effective target date. [FIX-ACCRUAL-END-1] (v1.14) One
+    // min(endDate, targetDate) rule for every caller via the shared helper — no hidden
+    // DateTime.now(), so this function is pure and projections respect endDate too.
+    final targetDateOnly = targetDate.dateOnly;
+    final effectiveTarget = accrualEndDate(record, targetDateOnly);
 
-    // Step 2: Calculate total accrued interest [FIX-TIMESTAMP-CALC-1]
-    // startDate is LocalDateTime — extract date component for interest period calculation
-    final startDateOnly = DateTime(record.startDate.year, record.startDate.month, record.startDate.day);
-    final months = getMonthsBetween(startDateOnly, effectiveTarget);
+    // Step 2: Calculate total accrued interest.
     final totalInterest = calculateInterestForPeriod(
-      record.principalAmount,
-      record.interestRate,
-      startDateOnly,
-      effectiveTarget,
+      principal: record.principalAmount,
+      rate: record.interestRate,
+      start: record.startDate.dateOnly, // ⚠️ [FIX-TIMESTAMP-CALC-1] startDate is a "datetime" field — truncate to date-only for interest period calculation
+      end: effectiveTarget,
     );
 
     // Step 3: Sum payments (already split by interest-first allocation at recording time).
     // interestPaid, principalPaid, and totalPaid are aggregated above.
 
-    // Step 4: Derive outstanding amounts (floored at 0 — no negative balances).
-    final outstandingInterest = max(0.0, totalInterest - interestPaid);
-    final outstandingPrincipal = max(0.0, record.principalAmount - principalPaid);
-    final totalDue = outstandingPrincipal + outstandingInterest;
+    // Step 4: Outstanding amounts. ⚠️ [FIX-FINANCIALS-OVERPAY-1] Each raw delta is
+    // floored at zero individually for outstandingInterest/outstandingPrincipal (an
+    // amount "still owed" can never display as negative) — but summing those two
+    // already-floored components can never reveal that the customer overpaid, because
+    // each floor discards its own negative remainder before the sum happens. Keep the
+    // raw deltas around so overpaymentAmount can be derived from them directly.
+    final rawOutstandingInterest = totalInterest - interestPaid;
+    final rawOutstandingPrincipal = record.principalAmount - principalPaid;
+    final outstandingInterest = max(0.0, rawOutstandingInterest);
+    final outstandingPrincipal = max(0.0, rawOutstandingPrincipal);
+
+    // [FIX-FINANCIALS-NET-1] (v1.14) totalDue nets the two raw deltas BEFORE flooring, so
+    // interest paid in excess of interest accrued (e.g. after the rate is edited down)
+    // credits against principal still owed. Only the SUM is floored at zero.
+    final netOutstanding = rawOutstandingInterest + rawOutstandingPrincipal;
+    final overpaymentAmount = max(0.0, -netOutstanding);
 
     return Financials(
       totalInterest: totalInterest,
@@ -234,20 +209,22 @@ class CalculationEngine {
       principalPaid: principalPaid,
       outstandingInterest: outstandingInterest,
       outstandingPrincipal: outstandingPrincipal,
-      totalDue: totalDue,
+      totalDue: max(0.0, netOutstanding),
+      overpaymentAmount: overpaymentAmount,
       principal: record.principalAmount,
-      months: months,
+      months: getMonthsBetween(record.startDate.dateOnly, effectiveTarget),
     );
   }
 
   /// Aggregates summary cards statistics across all active records (§5.1).
-  /// TargetDate logic: record.endDate?.takeIf { !it.isAfter(today) } ?: today
+  /// [FIX-CLOCK-1] targetDate = the injected today (already .dateOnly).
+  /// calculateRecordFinancials() applies the endDate cap itself through accrualEndDate() (§5.2.2),
+  /// so getDashboard needs no per-caller targetDate logic and never reads the clock.
   static DashboardStats getDashboard(
-    List<LedgerRecord> records, [
-    DateTime? today,
-  ]) {
-    final now = today ?? DateTime.now();
-    final todayDate = DateTime(now.year, now.month, now.day);
+    List<LedgerRecord> records, {
+    required DateTime today,
+  }) {
+    final todayDate = DateTime(today.year, today.month, today.day);
 
     double totalPrincipalGiven = 0.0;
     double totalInterestAccruedGiven = 0.0;
@@ -260,11 +237,7 @@ class CalculationEngine {
     for (final r in records) {
       if (!r.isActive) continue;
 
-      final targetDate = (r.endDate != null && !r.endDate!.isAfter(todayDate))
-          ? r.endDate!
-          : todayDate;
-
-      final fin = calculateRecordFinancials(r, targetDate);
+      final fin = calculateRecordFinancials(r, todayDate);
 
       if (r.isGiven) {
         totalPrincipalGiven += r.principalAmount;
@@ -290,11 +263,10 @@ class CalculationEngine {
   /// Per-customer rollup for the Reports screen Overview tab (§5.1).
   static List<CustomerReport> getCustomerReport(
     List<Customer> customers,
-    List<LedgerRecord> records, [
-    DateTime? today,
-  ]) {
-    final now = today ?? DateTime.now();
-    final todayDate = DateTime(now.year, now.month, now.day);
+    List<LedgerRecord> records, {
+    required DateTime today,
+  }) {
+    final todayDate = DateTime(today.year, today.month, today.day);
 
     return customers.map((customer) {
       final customerRecords = records
@@ -306,10 +278,7 @@ class CalculationEngine {
       double totalDue = 0.0;
 
       for (final r in customerRecords) {
-        final target = (r.endDate != null && !r.endDate!.isAfter(todayDate))
-            ? r.endDate!
-            : todayDate;
-        final fin = calculateRecordFinancials(r, target);
+        final fin = calculateRecordFinancials(r, todayDate);
         totalPrincipal += r.principalAmount;
         totalInterest += fin.totalInterest;
         totalDue += fin.totalDue;
@@ -347,8 +316,7 @@ class CalculationEngine {
       final year = int.parse(parts[0]);
       final month = int.parse(parts[1]);
       return MonthlyEarning(
-        year: year,
-        month: month,
+        month: DateTime(year, month, 1),
         interestReceived: earningsMap[key] ?? 0.0,
       );
     }).toList();
@@ -357,10 +325,14 @@ class CalculationEngine {
   /// Activity-based overdue records (§5.1 & §8).
   /// Threshold in days (defaults to 30).
   /// Falls back to record.startDate if no payment exists.
-  static List<OverdueRecord> getOverdue(
-    List<LedgerRecord> records,
-    Map<String, DateTime?> latestPaymentDates,
-    DateTime today, {
+  ///
+  /// Mandated by §4.4 & §8: Always guard for null endDate in overdue queries:
+  /// open-ended loans have endDate = null. The overdue query must NOT use endDate
+  /// at all — uses activity-based overdue logic instead.
+  static List<OverdueRecord> getOverdue({
+    required List<LedgerRecord> records,
+    required Map<String, DateTime?> latestPaymentDates,
+    required DateTime today,
     int thresholdDays = 30,
   }) {
     final todayDate = DateTime(today.year, today.month, today.day);
@@ -377,9 +349,11 @@ class CalculationEngine {
       // ChronoUnit.DAYS.between(lastActivityDate, todayDate) equivalent (§5.2.3)
       final daysSinceActivity = daysBetween(lastActivityDate, todayDate);
 
-      if (daysSinceActivity > thresholdDays) {
+      // Flag as overdue if that gap >= thresholdDays (30) (§8)
+      if (daysSinceActivity >= thresholdDays) {
         overdueList.add(OverdueRecord(
           record: r,
+          reasons: const {OverdueReason.noActivity},
           daysSinceActivity: daysSinceActivity,
           lastActivityDate: lastActivityDate,
         ));
@@ -387,8 +361,106 @@ class CalculationEngine {
     }
 
     // Sort descending by days of inactivity
-    overdueList.sort((a, b) => b.daysSinceActivity.compareTo(a.daysSinceActivity));
+    overdueList.sort((a, b) => (b.daysSinceActivity ?? 0).compareTo(a.daysSinceActivity ?? 0));
     return overdueList;
+  }
+
+  /// [FIX-OVERDUECOLLATERAL-1] Live-rate based overdue calculation across ALL ACTIVE records (GIVEN + TAKEN).
+  ///
+  /// Evaluates:
+  /// - collateralBreachedNow: currentCollateralValue < financials.totalDue.
+  /// - collateralProjected2Months: currentCollateralValue < projected financials.totalDue in 2 months.
+  ///
+  /// [FIX-OVERDUE-RATES-1] Records with no items, or with ANY item whose category has no usable rate
+  /// (missing or 0.0), are skipped — not flagged.
+  static List<OverdueRecord> computeCollateralOverdue({
+    required List<LedgerRecord> records,
+    required List<ItemRate> rates,
+    required DateTime today,
+  }) {
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final projectedTarget = addMonths(todayDate, 2);
+
+    final result = <OverdueRecord>[];
+
+    for (final record in records) {
+      if (!record.isActive) continue;
+
+      // [FIX-OVERDUE-RATES-1]: Skip records with no items
+      if (record.items.isEmpty) continue;
+
+      double totalCurrentCollateralValue = 0.0;
+      bool hasUnusableRate = false;
+
+      for (final item in record.items) {
+        final rate = coll_alerts.usableRate(rates, item.itemCategory);
+        if (rate == null || rate <= 0.0) {
+          hasUnusableRate = true;
+          break;
+        }
+        totalCurrentCollateralValue += item.fineWeight * rate;
+      }
+
+      // [FIX-OVERDUE-RATES-1]: Skip records if any item category lacks a usable rate (> 0.0)
+      if (hasUnusableRate) continue;
+
+      final finNow = calculateRecordFinancials(record, todayDate);
+      final finProjected = calculateRecordFinancials(record, projectedTarget);
+
+      final reasons = <OverdueReason>{};
+      if (totalCurrentCollateralValue < finNow.totalDue) {
+        reasons.add(OverdueReason.collateralBreachedNow);
+      }
+      if (totalCurrentCollateralValue < finProjected.totalDue) {
+        reasons.add(OverdueReason.collateralProjected2Months);
+      }
+
+      if (reasons.isNotEmpty) {
+        result.add(OverdueRecord(
+          record: record,
+          reasons: reasons,
+          currentCollateralValue: totalCurrentCollateralValue,
+          currentObligation: finNow.totalDue,
+          projectedObligationIn2Months: reasons.contains(OverdueReason.collateralProjected2Months)
+              ? finProjected.totalDue
+              : null,
+        ));
+      }
+    }
+
+    return result;
+  }
+
+  /// [FIX-OVERDUECOLLATERAL-1] Composition helper: unions reasons per record.id.
+  static List<OverdueRecord> mergeOverdueRecords(
+    List<OverdueRecord> activityBased,
+    List<OverdueRecord> collateralBased,
+  ) {
+    final Map<String, OverdueRecord> map = {};
+
+    for (final a in activityBased) {
+      map[a.record.id] = a;
+    }
+
+    for (final c in collateralBased) {
+      final existing = map[c.record.id];
+      if (existing != null) {
+        final mergedReasons = {...existing.reasons, ...c.reasons};
+        map[c.record.id] = OverdueRecord(
+          record: existing.record,
+          reasons: mergedReasons,
+          daysSinceActivity: existing.daysSinceActivity,
+          lastActivityDate: existing.lastActivityDate,
+          currentCollateralValue: c.currentCollateralValue,
+          currentObligation: c.currentObligation,
+          projectedObligationIn2Months: c.projectedObligationIn2Months,
+        );
+      } else {
+        map[c.record.id] = c;
+      }
+    }
+
+    return map.values.toList();
   }
 
   /// Computes Collection Alerts for ACTIVE GIVEN records (§5.3).
@@ -406,6 +478,7 @@ class CalculationEngine {
   /// 2. OvershootWarning only, sorted by shortfall gap descending.
   /// 3. CollateralDrop only, sorted by drop gap descending.
   /// 4. RateMissing last (informational).
+  /// Computes Collection Alerts for ACTIVE GIVEN records (§5.3 & [FIX-ARCH-COLLALERT-1]).
   static List<CollectionAlert> computeCollectionAlerts(
     List<LedgerRecord> records,
     List<ItemRate> rates, [
@@ -413,148 +486,29 @@ class CalculationEngine {
     DateTime? today,
   ]) {
     final now = today ?? DateTime.now();
-    final todayDate = DateTime(now.year, now.month, now.day);
-
-    // IMPORTANT: totalPaid is always sourced from the totalPaidMap parameter.
-    // Do NOT use record.payments.sumOf{} here — it would bypass the pre-computed
-    // aggregates and break the Worker path (which passes a pre-fetched map).
-
-    // Map rates by uppercase category string for fast lookups
-    final rateMap = <String, ItemRate>{};
-    for (final rate in rates) {
-      rateMap[rate.itemCategory.trim().toUpperCase()] = rate;
-    }
-
-    final group1 = <({LedgerRecord record, List<CollectionAlert> alerts, double maxGap})>[];
-    final group2 = <({LedgerRecord record, OvershootWarning alert, double gap})>[];
-    final group3 = <({LedgerRecord record, CollateralDrop alert, double gap})>[];
-    final group4 = <RateMissing>[];
-
-    for (final record in records) {
-      if (!record.isActive || !record.isGiven) continue;
-
-      double totalCurrentCollateralValue = 0.0;
-      double itemValueAtLending = 0.0;
-      final recordRateMissing = <RateMissing>[];
-
-      int pricedItemCount = 0;
-
-      for (final item in record.items) {
-        itemValueAtLending += (item.itemValue ?? calculateItemValue(item));
-        final normCategory = item.itemCategory.trim().toUpperCase();
-        final rate = rateMap[normCategory];
-
-        if (rate == null) {
-          recordRateMissing.add(RateMissing(
-            record: record,
-            itemCategory: item.itemCategory,
-          ));
-          // Exclude item from numeric sum rather than zeroing it silently (§5.3)
-        } else {
-          pricedItemCount++;
-          final weight = item.weight ?? 0.0;
-          final purity = item.purity ?? 0.0;
-          final ratePerUnit = rate.ratePerUnit;
-          totalCurrentCollateralValue += weight * (purity / 100.0) * ratePerUnit;
-        }
-      }
-
-      group4.addAll(recordRateMissing);
-
-      final fin = calculateRecordFinancials(record, todayDate, todayDate);
-
-      // Alert 1: Collateral Drop
-      // Compare totalCurrentCollateralValue <= financials.totalDue — NOT record.principalAmount!
-      // Evaluated only when there are priced items (otherwise rate missing is reported, not false drop)
-      final hasCollateralDrop = pricedItemCount > 0 &&
-          (totalCurrentCollateralValue <= fin.totalDue);
-      final dropGap = fin.totalDue - totalCurrentCollateralValue;
-      final dropAlert = hasCollateralDrop
-          ? CollateralDrop(
-              record: record,
-              currentCollateralValue: totalCurrentCollateralValue,
-              totalDue: fin.totalDue,
-            )
-          : null;
-
-      // Alert 3: Overshoot Warning (in 2 months)
-      final projectedTarget = DateTime(todayDate.year, todayDate.month + 2, todayDate.day);
-      final projectedInterest = calculateInterestForPeriod(
-        record.principalAmount,
-        record.interestRate,
-        record.startDate,
-        projectedTarget,
-      );
-      // [FIX-TOTALPAID-SOURCE]: totalPaid is strictly sourced from totalPaidMap, defaulting to 0.0
-      final totalPaid = totalPaidMap[record.id] ?? 0.0;
-      final projectedOutstanding = record.principalAmount + projectedInterest - totalPaid;
-
-      // Overshoot condition (§5.4): projectedOutstanding >= itemValueAtLending
-      final hasOvershoot = itemValueAtLending > 0 && (projectedOutstanding >= itemValueAtLending);
-      final overshootGap = projectedOutstanding - itemValueAtLending;
-      final overshootAlert = hasOvershoot
-          ? OvershootWarning(
-              record: record,
-              projectedOutstanding: projectedOutstanding,
-              itemValueAtLending: itemValueAtLending,
-            )
-          : null;
-
-      if (hasOvershoot && hasCollateralDrop) {
-        // Group 1: Both triggered simultaneously
-        final maxGap = max(overshootGap, dropGap);
-        group1.add((
-          record: record,
-          alerts: [overshootAlert!, dropAlert!],
-          maxGap: maxGap,
-        ));
-      } else if (hasOvershoot) {
-        // Group 2: Overshoot only
-        group2.add((
-          record: record,
-          alert: overshootAlert!,
-          gap: overshootGap,
-        ));
-      } else if (hasCollateralDrop) {
-        // Group 3: Collateral drop only
-        group3.add((
-          record: record,
-          alert: dropAlert!,
-          gap: dropGap,
-        ));
-      }
-    }
-
-    // Sort Group 1 by maxGap descending
-    group1.sort((a, b) => b.maxGap.compareTo(a.maxGap));
-
-    // Sort Group 2 by shortfall gap descending
-    group2.sort((a, b) => b.gap.compareTo(a.gap));
-
-    // Sort Group 3 by drop gap descending
-    group3.sort((a, b) => b.gap.compareTo(a.gap));
-
-    final result = <CollectionAlert>[];
-    for (final item in group1) {
-      result.addAll(item.alerts);
-    }
-    for (final item in group2) {
-      result.add(item.alert);
-    }
-    for (final item in group3) {
-      result.add(item.alert);
-    }
-    result.addAll(group4);
-
-    return result;
+    return coll_alerts.computeCollectionAlerts(
+      records: records,
+      rates: rates,
+      today: now,
+      totalPaidMap: totalPaidMap,
+    );
   }
 
+  /// Single pure function behind Dashboard card and Risk Summary (§5.3 & [FIX-RISK-VIEWMODEL-1]).
+  static List<RecordRisk> computeRecordRisks({
+    required List<LedgerRecord> records,
+    required List<ItemRate> rates,
+    required DateTime today,
+    Map<String, double> totalPaidMap = const {},
+  }) =>
+      coll_alerts.computeRecordRisks(
+        records: records,
+        rates: rates,
+        today: today,
+        totalPaidMap: totalPaidMap,
+      );
+
   /// Computes Unified Collection Alert Card models for all ACTIVE GIVEN records (§5.4).
-  ///
-  /// Each card contains both the live collateral-drop evaluation AND the 2-month
-  /// forward overshoot projection side-by-side on a single card.
-  /// Records are sorted with triggered cards first (following 4-group risk ordering),
-  /// followed by safe cards.
   static List<CollectionAlertCardData> computeCollectionAlertCards(
     List<LedgerRecord> records,
     List<ItemRate> rates, [
@@ -562,118 +516,94 @@ class CalculationEngine {
     DateTime? today,
   ]) {
     final now = today ?? DateTime.now();
-    final todayDate = DateTime(now.year, now.month, now.day);
+    final risks = coll_alerts.computeRecordRisks(
+      records: records,
+      rates: rates,
+      today: now,
+      totalPaidMap: totalPaidMap,
+    );
+    return risks
+        .map((r) => CollectionAlertCardData(
+              record: r.record,
+              currentCollateralValue: r.currentCollateralValue,
+              totalDue: r.totalDue,
+              isCollateralUnderwater: r.collateralDrop,
+              projectedOutstanding: r.projectedOutstanding,
+              itemValueAtLending: r.itemValueAtLending,
+              isOvershoot: r.overshoot,
+              hasMissingRate: r.missingRateCategories.isNotEmpty,
+              missingRateCategories: r.missingRateCategories.toList(),
+            ))
+        .toList();
+  }
 
-    final rateMap = <String, ItemRate>{};
-    for (final rate in rates) {
-      rateMap[rate.itemCategory.trim().toUpperCase()] = rate;
-    }
-
-    final cardDataList = <CollectionAlertCardData>[];
-
-    for (final record in records) {
-      if (!record.isActive || !record.isGiven) continue;
-
-      double totalCurrentCollateralValue = 0.0;
-      double itemValueAtLending = 0.0;
-      final missingCategories = <String>[];
-      int pricedItemCount = 0;
-
-      for (final item in record.items) {
-        itemValueAtLending += (item.itemValue ?? calculateItemValue(item));
-        final normCategory = item.itemCategory.trim().toUpperCase();
-        final rate = rateMap[normCategory];
-
-        if (rate == null) {
-          missingCategories.add(item.itemCategory);
-        } else {
-          pricedItemCount++;
-          final weight = item.weight ?? 0.0;
-          final purity = item.purity ?? 0.0;
-          final ratePerUnit = rate.ratePerUnit;
-          totalCurrentCollateralValue += weight * (purity / 100.0) * ratePerUnit;
-        }
-      }
-
-      final fin = calculateRecordFinancials(record, todayDate, todayDate);
-
-      final isCollateralUnderwater = pricedItemCount > 0 &&
-          (totalCurrentCollateralValue <= fin.totalDue);
-
-      final projectedTarget = DateTime(todayDate.year, todayDate.month + 2, todayDate.day);
-      final projectedInterest = calculateInterestForPeriod(
-        record.principalAmount,
-        record.interestRate,
-        record.startDate,
-        projectedTarget,
-      );
-      final totalPaid = totalPaidMap[record.id] ?? 0.0;
-      final projectedOutstanding = record.principalAmount + projectedInterest - totalPaid;
-
-      final isOvershoot = itemValueAtLending > 0 && (projectedOutstanding >= itemValueAtLending);
-
-      cardDataList.add(CollectionAlertCardData(
-        record: record,
-        currentCollateralValue: totalCurrentCollateralValue,
-        totalDue: fin.totalDue,
-        isCollateralUnderwater: isCollateralUnderwater,
-        projectedOutstanding: projectedOutstanding,
-        itemValueAtLending: itemValueAtLending,
-        isOvershoot: isOvershoot,
-        hasMissingRate: missingCategories.isNotEmpty,
-        missingRateCategories: missingCategories,
-      ));
-    }
-
-    // Sort cards: triggered first, followed by safe
-    cardDataList.sort((a, b) {
-      if (a.isTriggered && !b.isTriggered) return -1;
-      if (!a.isTriggered && b.isTriggered) return 1;
-
-      // When both triggered, rank by largest severity gap
-      if (a.isTriggered && b.isTriggered) {
-        final aGap = max(a.totalDue - a.currentCollateralValue, a.projectedOutstanding - a.itemValueAtLending);
-        final bGap = max(b.totalDue - b.currentCollateralValue, b.projectedOutstanding - b.itemValueAtLending);
-        return bGap.compareTo(aGap);
-      }
-
-      return 0;
-    });
-
-    return cardDataList;
+  /// Computes gross interest spread for paired GIVEN and TAKEN records (§4.2):
+  // INTENTIONAL: accrual-based profit (gross interest spread), not
+  // cash-adjusted for payments.
+  // netProfit = givenFinancials.totalInterest - takenFinancials.totalInterest
+  // Do NOT change to use outstandingInterest — that alters semantics.
+  // See spec §4.1/§4.2 for rationale.
+  static double calculateNetProfit(Financials givenFinancials, Financials takenFinancials) {
+    return givenFinancials.totalInterest - takenFinancials.totalInterest;
   }
 }
 
 // Top-level function exports for clean idiomatic usage
 double calculateItemValue(LedgerItem item) => CalculationEngine.calculateItemValue(item);
 double calculateTotalItemValue(List<LedgerItem> items) => CalculationEngine.calculateTotalItemValue(items);
-double getMonthsBetween(DateTime start, DateTime end) => CalculationEngine.getMonthsBetween(start, end);
-double calculateInterestForPeriod(double principal, double rate, DateTime start, DateTime end) =>
-    CalculationEngine.calculateInterestForPeriod(principal, rate, start, end);
+double calculateInterestForPeriod({
+  required double principal,
+  required double rate,
+  required DateTime start,
+  required DateTime end,
+}) =>
+    CalculationEngine.calculateInterestForPeriod(
+      principal: principal,
+      rate: rate,
+      start: start,
+      end: end,
+    );
 Financials calculateRecordFinancials(LedgerRecord record, DateTime targetDate, [DateTime? today]) =>
     CalculationEngine.calculateRecordFinancials(record, targetDate, today);
-DashboardStats getDashboard(List<LedgerRecord> records, [DateTime? today]) =>
-    CalculationEngine.getDashboard(records, today);
-List<CustomerReport> getCustomerReport(List<Customer> customers, List<LedgerRecord> records, [DateTime? today]) =>
-    CalculationEngine.getCustomerReport(customers, records, today);
+double calculateNetProfit(Financials givenFinancials, Financials takenFinancials) =>
+    CalculationEngine.calculateNetProfit(givenFinancials, takenFinancials);
+DashboardStats getDashboard(List<LedgerRecord> records, {required DateTime today}) =>
+    CalculationEngine.getDashboard(records, today: today);
+List<CustomerReport> getCustomerReport(
+  List<Customer> customers,
+  List<LedgerRecord> records, {
+  required DateTime today,
+}) =>
+    CalculationEngine.getCustomerReport(customers, records, today: today);
 List<MonthlyEarning> getMonthlyInterest(List<LedgerRecord> records) =>
     CalculationEngine.getMonthlyInterest(records);
-List<OverdueRecord> getOverdue(
-  List<LedgerRecord> records,
-  Map<String, DateTime?> latestPaymentDates,
-  DateTime today, {
+List<OverdueRecord> getOverdue({
+  required List<LedgerRecord> records,
+  required Map<String, DateTime?> latestPaymentDates,
+  required DateTime today,
   int thresholdDays = 30,
 }) =>
-    CalculationEngine.getOverdue(records, latestPaymentDates, today, thresholdDays: thresholdDays);
-PaymentAllocation allocatePayment(double paymentAmount, double outstandingInterest) =>
-    CalculationEngine.allocatePayment(paymentAmount, outstandingInterest);
-List<CollectionAlert> computeCollectionAlerts(
-  List<LedgerRecord> records,
-  List<ItemRate> rates, [
-  Map<String, double> totalPaidMap = const {},
-  DateTime? today,
-]) =>
-    CalculationEngine.computeCollectionAlerts(records, rates, totalPaidMap, today);
+    CalculationEngine.getOverdue(
+      records: records,
+      latestPaymentDates: latestPaymentDates,
+      today: today,
+      thresholdDays: thresholdDays,
+    );
+List<OverdueRecord> computeCollateralOverdue({
+  required List<LedgerRecord> records,
+  required List<ItemRate> rates,
+  required DateTime today,
+}) =>
+    CalculationEngine.computeCollateralOverdue(
+      records: records,
+      rates: rates,
+      today: today,
+    );
+List<OverdueRecord> mergeOverdueRecords(
+  List<OverdueRecord> activityBased,
+  List<OverdueRecord> collateralBased,
+) =>
+    CalculationEngine.mergeOverdueRecords(activityBased, collateralBased);
 List<CollectionAlertCardData> computeCollectionAlertCards(
   List<LedgerRecord> records,
   List<ItemRate> rates, [
@@ -681,39 +611,3 @@ List<CollectionAlertCardData> computeCollectionAlertCards(
   DateTime? today,
 ]) =>
     CalculationEngine.computeCollectionAlertCards(records, rates, totalPaidMap, today);
-
-/// Result of interest-first payment allocation (§5.2.4).
-///
-/// Implements `Pair<Double, Double>` contract:
-/// - [interestPaid]: Portion of payment applied to outstanding accrued interest.
-/// - [principalPaid]: Portion of payment applied to outstanding principal.
-class PaymentAllocation {
-  final double interestPaid;
-  final double principalPaid;
-
-  const PaymentAllocation({
-    required this.interestPaid,
-    required this.principalPaid,
-  });
-
-  /// Pair / tuple compatibility: val (interestPaid, principalPaid) = allocatePayment(...)
-  double get first => interestPaid;
-  double get second => principalPaid;
-
-  /// Dart 3 record representation: (interestPaid, principalPaid)
-  (double, double) get asRecord => (interestPaid, principalPaid);
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is PaymentAllocation &&
-          runtimeType == other.runtimeType &&
-          interestPaid == other.interestPaid &&
-          principalPaid == other.principalPaid;
-
-  @override
-  int get hashCode => Object.hash(interestPaid, principalPaid);
-
-  @override
-  String toString() => 'PaymentAllocation(interestPaid: $interestPaid, principalPaid: $principalPaid)';
-}

@@ -1,8 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_lending/core/calculations/calculation_engine.dart';
 import 'package:money_lending/core/core.dart';
 import 'package:money_lending/core/pdf/pdf.dart';
-import 'package:money_lending/domain/domain.dart';
 import 'package:money_lending/features/reports/reports.dart';
 
 void main() {
@@ -134,7 +132,9 @@ void main() {
       expect(statement.totalInterestAccrued, greaterThan(0.0));
       expect(statement.totalDue, greaterThan(0.0));
 
-      // PDF byte document generation
+      // PDF Document and byte generation (§6.1)
+      final doc = statement.buildDocument();
+      expect(doc, isNotNull);
       final pdfBytes = await statement.buildPdf();
       expect(pdfBytes, isNotNull);
       expect(pdfBytes.length, greaterThan(500));
@@ -146,14 +146,17 @@ void main() {
     });
 
     test('Customer statement adheres strictly to §6.2 output structure and [FIX-TIMESTAMP-PDF-1]', () async {
-      // 1. Transaction ID header surfaced for every record row
-      // 2. Exact timestamp formatted as "dd/MM/yyyy, HH:mm" on startDate
+      // 1. Transaction ID header surfaced for every record row (e.g. TRAN092601)
+      // 2. Exact timestamp formatted as "dd/MM/yyyy, HH:mm" on startDate (e.g. "23/04/2026, 14:30")
+      // 3. Payment ID (e.g. PAY092601) and payment date with exact timestamp
+      // 4. Customer ID format (e.g. CUST26-27-01)
+      final customerWithFmt = customer1.copyWith(displayId: 'CUST26-27-01');
       final exactStart = DateTime(2026, 4, 23, 14, 30);
       final exactPaymentDate = DateTime(2026, 5, 10, 16, 45);
 
       final recWithExactTimes = LedgerRecord(
         id: 'rec-exact-time',
-        transactionId: 'TXN-999999',
+        transactionId: 'TRAN092601',
         type: RecordType.GIVEN,
         customerId: 'c-1',
         customerName: 'Ramesh Sharma',
@@ -165,11 +168,13 @@ void main() {
         payments: [
           Payment(
             id: 'pay-exact',
+            paymentId: 'PAY092601',
             recordId: 'rec-exact-time',
             amount: 600.0,
             date: exactPaymentDate,
             interestPaid: 600.0,
             principalPaid: 0.0,
+            notes: 'Monthly interest installment',
           ),
         ],
       );
@@ -179,17 +184,23 @@ void main() {
       expect(formatPdfTimestamp(exactPaymentDate), '10/05/2026, 16:45');
 
       final statement = generateCustomerStatement(
-        customer1,
+        customerWithFmt,
         [recWithExactTimes],
         businessInfo,
         DateTime(2026, 6, 1),
       );
 
-      expect(statement.records.first.transactionId, 'TXN-999999');
+      expect(statement.customer.displayId, 'CUST26-27-01');
+      expect(statement.records.first.transactionId, 'TRAN092601');
+      expect(statement.records.first.payments.first.paymentId, 'PAY092601');
       expect(statement.records.first.payments.first.interestPaid, 600.0);
       expect(statement.totalPrincipal, 30000.0);
+      expect(statement.totalInterestAccrued, greaterThan(0.0));
+      expect(statement.totalDue, greaterThan(0.0));
 
-      // Build PDF and verify valid output
+      // Build Document and PDF
+      final doc = statement.buildDocument();
+      expect(doc, isNotNull);
       final pdfBytes = await statement.buildPdf();
       expect(pdfBytes.length, greaterThan(1000));
       expect(pdfBytes[0], 0x25); // %
@@ -234,12 +245,14 @@ void main() {
       expect(report.totalActiveRecords, 2);
 
       // 4. [FIX-ARCH-PDFTEST-1] Exact match with getDashboard()
-      final dashboard = CalculationEngine.getDashboard(records, testToday);
+      final dashboard = CalculationEngine.getDashboard(records, today: testToday);
       expect(report.totalPrincipal, equals(dashboard.totalPrincipalGiven));
       expect(report.totalInterestAccrued, equals(dashboard.totalInterestAccruedGiven));
       expect(report.totalDue, equals(dashboard.totalDueGiven));
 
-      // 5. Offline PDF Document build
+      // 5. Offline PDF Document build (§6.1)
+      final doc = report.buildDocument();
+      expect(doc, isNotNull);
       final pdfBytes = await report.buildPdf();
       expect(pdfBytes, isNotNull);
       expect(pdfBytes.length, greaterThan(500));
@@ -368,6 +381,76 @@ void main() {
       await subFab.cancel();
       await subAction.cancel();
       vm.dispose();
+    });
+
+    test('ReportsNotifier alias and getFabTapHandler correctly routes callbacks (§6.1)', () async {
+      final notifier = ReportsNotifier(initialTab: 0);
+
+      bool allCustomersTapped = false;
+      bool customerStatementTapped = false;
+
+      // 1. Overview tab: tap handler is non-null and triggers allCustomersReport
+      var handler = notifier.getFabTapHandler(
+        onAllCustomersReport: () async {
+          allCustomersTapped = true;
+        },
+        onCustomerStatement: (c) async {
+          customerStatementTapped = true;
+        },
+      );
+      expect(handler, isNotNull);
+      await handler!();
+      expect(allCustomersTapped, isTrue);
+
+      // 2. Customer tab without selection: handler is null
+      notifier.activeSubTabIndex = 1;
+      notifier.selectedCustomer = null;
+      expect(notifier.isFabVisible, isFalse);
+      expect(
+        notifier.getFabTapHandler(
+          onAllCustomersReport: () async {},
+          onCustomerStatement: (c) async {},
+        ),
+        isNull,
+      );
+
+      // 3. Customer tab with selection: handler routes to onCustomerStatement with selectedCustomer
+      notifier.selectedCustomer = customer1;
+      expect(notifier.isFabVisible, isTrue);
+      handler = notifier.getFabTapHandler(
+        onAllCustomersReport: () async {},
+        onCustomerStatement: (c) async {
+          expect(c.id, customer1.id);
+          customerStatementTapped = true;
+        },
+      );
+      expect(handler, isNotNull);
+      await handler!();
+      expect(customerStatementTapped, isTrue);
+
+      // 4. Monthly tab (index 2): handler is null
+      notifier.activeSubTabIndex = 2;
+      expect(notifier.isFabVisible, isFalse);
+      expect(
+        notifier.getFabTapHandler(
+          onAllCustomersReport: () async {},
+          onCustomerStatement: (c) async {},
+        ),
+        isNull,
+      );
+
+      // 5. Overdue tab (index 3): handler is null
+      notifier.activeSubTabIndex = 3;
+      expect(notifier.isFabVisible, isFalse);
+      expect(
+        notifier.getFabTapHandler(
+          onAllCustomersReport: () async {},
+          onCustomerStatement: (c) async {},
+        ),
+        isNull,
+      );
+
+      notifier.dispose();
     });
   });
 }

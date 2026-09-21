@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../domain/domain.dart';
 
 /// PDF Sharing Service (:core:pdf).
 ///
@@ -81,5 +83,36 @@ class PdfShareService {
     );
 
     return shareResult.status != ShareResultStatus.dismissed;
+  }
+
+  /// Direct share method using printing's Printing.sharePdf(bytes: ..., filename: ...) (§6.3).
+  Future<bool> shareWithPrinting({
+    required Uint8List bytes,
+    required String fileName,
+    String? subject,
+  }) async {
+    final sanitizedName = fileName.endsWith('.pdf') ? fileName : '$fileName.pdf';
+    return Printing.sharePdf(
+      bytes: bytes,
+      filename: sanitizedName,
+      subject: subject,
+    );
+  }
+
+  /// Convenience share method for customer statement matching §6.3:
+  /// File: `${dir.path}/pdfs/${customer.displayId}_statement.pdf`
+  /// Subject: `Statement — ${customer.name}`
+  Future<bool> shareCustomerStatement({
+    required Customer customer,
+    required Uint8List bytes,
+  }) async {
+    final fileName = '${customer.displayId}_statement.pdf';
+    final subject = 'Statement — ${customer.name}';
+    return sharePdf(
+      bytes: bytes,
+      fileName: fileName,
+      subject: subject,
+      chooserTitle: 'Share Customer Statement',
+    );
   }
 }

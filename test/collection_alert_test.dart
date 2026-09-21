@@ -102,7 +102,11 @@ void main() {
         ],
       );
 
-      final alerts = computeCollectionAlerts([recordExposedOnInterest], rates, {}, now);
+      final alerts = computeCollectionAlerts(
+        records: [recordExposedOnInterest],
+        rates: rates,
+        today: now,
+      );
       expect(alerts.any((a) => a is CollateralDrop), isTrue);
 
       final dropAlert = alerts.firstWhere((a) => a is CollateralDrop) as CollateralDrop;
@@ -143,7 +147,11 @@ void main() {
         ],
       );
 
-      final alerts = computeCollectionAlerts([recordWithUnknownItem], rates, {}, now);
+      final alerts = computeCollectionAlerts(
+        records: [recordWithUnknownItem],
+        rates: rates,
+        today: now,
+      );
       final rateMissing = alerts.whereType<RateMissing>().toList();
       expect(rateMissing.length, 1);
       expect(rateMissing.first.itemCategory, 'RUBY_UNLISTED');
@@ -177,7 +185,11 @@ void main() {
         ],
       );
 
-      final alerts = computeCollectionAlerts([recordOvershooting], rates, {}, now);
+      final alerts = computeCollectionAlerts(
+        records: [recordOvershooting],
+        rates: rates,
+        today: now,
+      );
       final overshootAlerts = alerts.whereType<OvershootWarning>().toList();
       expect(overshootAlerts.length, 1);
       expect(overshootAlerts.first.projectedOutstanding, 15000.0);
@@ -300,10 +312,9 @@ void main() {
       );
 
       final alerts = computeCollectionAlerts(
-        [recSafe, recMissingOnly, recDropOnly, recOvershootOnly, recBoth],
-        rates,
-        {},
-        now,
+        records: [recSafe, recMissingOnly, recDropOnly, recOvershootOnly, recBoth],
+        rates: rates,
+        today: now,
       );
 
       // Verify safe record is NOT included in alert list
@@ -352,17 +363,276 @@ void main() {
       );
 
       // Case A: Default empty map -> treats totalPaid as 0 -> falsely triggers OvershootWarning!
-      final falseAlerts = computeCollectionAlerts([recordWithBigPayments], rates, {}, now);
+      final falseAlerts = computeCollectionAlerts(
+        records: [recordWithBigPayments],
+        rates: rates,
+        today: now,
+      );
       expect(falseAlerts.any((a) => a is OvershootWarning), isTrue);
 
       // Case B: Real totalPaidMap with 8000 paid -> projected outstanding = 15000 - 8000 = 7000 <= 12000 -> NO overshoot!
       final trueAlerts = computeCollectionAlerts(
-        [recordWithBigPayments],
-        rates,
-        {'rec-paid-customer': 8000.0},
-        now,
+        records: [recordWithBigPayments],
+        rates: rates,
+        totalPaidMap: {'rec-paid-customer': 8000.0},
+        today: now,
       );
       expect(trueAlerts.any((a) => a is OvershootWarning), isFalse);
+    });
+  });
+
+  group('RecordRisk and computeRecordRisks 5-group sorting ([FIX-RISK-VIEWMODEL-1] & [FIX-RATE-USABLE-1])', () {
+    final testDate = DateTime(2026, 6, 1);
+    final testRates = [
+      ItemRate(
+        id: 'r-1',
+        itemCategory: 'GOLD_22K',
+        ratePerUnit: 5000.0,
+        effectiveDate: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      ),
+      ItemRate(
+        id: 'r-2',
+        itemCategory: 'SILVER',
+        ratePerUnit: 0.0, // [FIX-RATE-USABLE-1] Unpriced category placeholder
+        effectiveDate: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      ),
+    ];
+
+    test('usableRate returns positive rates and returns null for missing or zero/negative rates', () {
+      expect(usableRate(testRates, 'GOLD_22K'), 5000.0);
+      expect(usableRate(testRates, 'gold_22k'), 5000.0);
+      expect(usableRate(testRates, ' SILVER '), isNull, reason: 'ratePerUnit == 0.0 is not usable');
+      expect(usableRate(testRates, 'DIAMOND'), isNull, reason: 'category not found');
+    });
+
+    test('RecordRisk calculates getters correctly and flags atRisk', () {
+      final rec = LedgerRecord(
+        id: 'rec-test',
+        transactionId: 'TXN-001',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-1',
+            recordId: 'rec-test',
+            name: 'Gold Ring',
+            itemCategory: 'GOLD_22K',
+            weight: 2.0,
+            purity: 100.0,
+            itemValue: 12000.0,
+          ),
+        ],
+      );
+
+      final riskDrop = RecordRisk(
+        record: rec,
+        currentCollateralValue: 9000.0,
+        missingRateCategories: const {},
+        totalDue: 10000.0,
+        projectedOutstanding: 10500.0,
+        itemValueAtLending: 12000.0,
+      );
+      expect(riskDrop.hasCollateral, isTrue);
+      expect(riskDrop.collateralDrop, isTrue);
+      expect(riskDrop.overshoot, isFalse);
+      expect(riskDrop.atRisk, isTrue);
+
+      final riskOvershoot = RecordRisk(
+        record: rec,
+        currentCollateralValue: 15000.0,
+        missingRateCategories: const {},
+        totalDue: 10000.0,
+        projectedOutstanding: 13000.0,
+        itemValueAtLending: 12000.0,
+      );
+      expect(riskOvershoot.collateralDrop, isFalse);
+      expect(riskOvershoot.overshoot, isTrue);
+      expect(riskOvershoot.atRisk, isTrue);
+
+      final riskSafe = RecordRisk(
+        record: rec,
+        currentCollateralValue: 15000.0,
+        missingRateCategories: const {},
+        totalDue: 10000.0,
+        projectedOutstanding: 11000.0,
+        itemValueAtLending: 12000.0,
+      );
+      expect(riskSafe.collateralDrop, isFalse);
+      expect(riskSafe.overshoot, isFalse);
+      expect(riskSafe.atRisk, isFalse);
+    });
+
+    test('computeRecordRisks produces authoritative 5-group sort order and alertsFromRisks projects it', () {
+      // 1. recBoth: Group 1 (both drop and overshoot)
+      final recBoth = LedgerRecord(
+        id: 'rec-both',
+        transactionId: 'TXN-001',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2025, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 5.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-both',
+            recordId: 'rec-both',
+            name: 'Gold Ring',
+            itemCategory: 'GOLD_22K',
+            weight: 1.5, // 1.5 * 5000 = 7500 < totalDue (~18500) -> drop
+            purity: 100.0,
+            itemValue: 8000.0, // projected > itemValue -> overshoot
+          ),
+        ],
+      );
+
+      // 2. recOvershoot: Group 2 (overshoot only, no drop)
+      final recOvershoot = LedgerRecord(
+        id: 'rec-overshoot',
+        transactionId: 'TXN-002',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2025, 9, 1),
+        principalAmount: 10000.0,
+        interestRate: 5.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-overshoot',
+            recordId: 'rec-overshoot',
+            name: 'Gold Bar',
+            itemCategory: 'GOLD_22K',
+            weight: 5.0, // 25,000 live value (no drop)
+            purity: 100.0,
+            itemValue: 12000.0, // projected 15000 > 12000 -> overshoot
+          ),
+        ],
+      );
+
+      // 3. recDrop: Group 3 (drop only, no overshoot)
+      final recDrop = LedgerRecord(
+        id: 'rec-drop',
+        transactionId: 'TXN-003',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 4, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-drop',
+            recordId: 'rec-drop',
+            name: 'Gold Item',
+            itemCategory: 'GOLD_22K',
+            weight: 2.0, // 10,000 live value < 10,400 totalDue -> drop
+            purity: 100.0,
+            itemValue: 20000.0, // 20,000 > projected (~10800) -> no overshoot
+          ),
+        ],
+      );
+
+      // 4. recMissingRate: Group 4 (missing rate category)
+      final recMissingRate = LedgerRecord(
+        id: 'rec-missing',
+        transactionId: 'TXN-004',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 5, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-missing',
+            recordId: 'rec-missing',
+            name: 'Silver Coin',
+            itemCategory: 'SILVER', // rate is 0.0 -> usableRate returns null
+            weight: 10.0,
+            purity: 100.0,
+            itemValue: 10000.0,
+          ),
+        ],
+      );
+
+      // 5. recSafeB & recSafeA: Group 5 (safe records ordered by transactionId)
+      final recSafeB = LedgerRecord(
+        id: 'rec-safe-b',
+        transactionId: 'TXN-010',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 5, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-safe-b',
+            recordId: 'rec-safe-b',
+            name: 'Gold Coin',
+            itemCategory: 'GOLD_22K',
+            weight: 10.0,
+            purity: 100.0,
+            itemValue: 60000.0,
+          ),
+        ],
+      );
+
+      final recSafeA = LedgerRecord(
+        id: 'rec-safe-a',
+        transactionId: 'TXN-005',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 5, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-safe-a',
+            recordId: 'rec-safe-a',
+            name: 'Gold Coin',
+            itemCategory: 'GOLD_22K',
+            weight: 10.0,
+            purity: 100.0,
+            itemValue: 60000.0,
+          ),
+        ],
+      );
+
+      final risks = computeRecordRisks(
+        records: [recSafeB, recMissingRate, recDrop, recOvershoot, recBoth, recSafeA],
+        rates: testRates,
+        today: testDate,
+      );
+
+      expect(risks.length, 6);
+      // Group 1: recBoth
+      expect(risks[0].record.id, 'rec-both');
+      // Group 2: recOvershoot
+      expect(risks[1].record.id, 'rec-overshoot');
+      // Group 3: recDrop
+      expect(risks[2].record.id, 'rec-drop');
+      // Group 4: recMissing (currentCollateralValue is null)
+      expect(risks[3].record.id, 'rec-missing');
+      expect(risks[3].currentCollateralValue, isNull);
+      expect(risks[3].missingRateCategories, contains('SILVER'));
+      // Group 5: Safe records sorted by transactionId (TXN-005 before TXN-010)
+      expect(risks[4].record.id, 'rec-safe-a');
+      expect(risks[5].record.id, 'rec-safe-b');
+
+      final alerts = alertsFromRisks(risks);
+      // Safe records omitted from alerts
+      expect(alerts.any((a) => a.record.id == 'rec-safe-a'), isFalse);
+      expect(alerts.any((a) => a.record.id == 'rec-safe-b'), isFalse);
+      // Missing rate alert present
+      expect(alerts.any((a) => a is RateMissing && a.record.id == 'rec-missing'), isTrue);
     });
   });
 
@@ -459,6 +729,9 @@ class _FakeRecordRepo implements RecordRepository {
   Stream<List<RecordPaymentTotal>> getTotalPaidFlow() => totalPaidStream;
 
   @override
+  Stream<List<RecordPaymentTotal>> watchTotalPaidFlow() => totalPaidStream;
+
+  @override
   Future<void> addPayment(Payment payment) => throw UnimplementedError();
   @override
   Future<void> deleteRecord(String id) => throw UnimplementedError();
@@ -469,7 +742,11 @@ class _FakeRecordRepo implements RecordRepository {
   @override
   Stream<List<LedgerRecord>> getAllActiveRecords() => throw UnimplementedError();
   @override
-  Future<List<LedgerRecord>> getAllActiveRecordsOnce() => throw UnimplementedError();
+  Future<List<LedgerRecord>> getAllActiveRecordsOnce() async => [];
+  @override
+  Future<List<LedgerRecord>> getAllRecordsOnce() async => [];
+  @override
+  Future<void> refresh() async {}
   @override
   Future<LedgerRecord?> getRecordById(String id) => throw UnimplementedError();
   @override
@@ -478,6 +755,14 @@ class _FakeRecordRepo implements RecordRepository {
   Future<List<RecordPaymentTotal>> getTotalPaidByRecordIds(List<String> recordIds) => throw UnimplementedError();
   @override
   Future<void> importRecordsTransactionally(List<LedgerRecord> records) => throw UnimplementedError();
+  @override
+  Future<void> restoreBackupTransactionally({
+    required List<Map<String, dynamic>> customers,
+    required List<Map<String, dynamic>> records,
+    required List<Map<String, dynamic>> ledgerItems,
+    required List<Map<String, dynamic>> payments,
+    List<Map<String, dynamic>> retiredIds = const [],
+  }) => throw UnimplementedError();
   @override
   Future<LedgerRecord> insertRecord(LedgerRecord record) => throw UnimplementedError();
   @override
@@ -493,6 +778,15 @@ class _FakeRateRepo implements ItemRateRepository {
 
   @override
   Stream<List<ItemRate>> getCurrentRates() => ratesStream;
+
+  @override
+  Stream<List<ItemRate>> watchCurrentRates() => ratesStream;
+
+  @override
+  Stream<ItemRate?> watchCurrentRate(String category) => throw UnimplementedError();
+
+  @override
+  Stream<List<ItemRate>> watchRatesForDate(DateTime date) => throw UnimplementedError();
 
   @override
   Stream<ItemRate?> getCurrentRate(String category) => throw UnimplementedError();

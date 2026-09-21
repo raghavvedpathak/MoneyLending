@@ -39,10 +39,27 @@ class SettingsRepositoryImpl implements SettingsRepository {
   }
 
   @override
-  Stream<Settings> getSettings() {
-    _refreshSettings();
-    return _settingsStreamController.stream;
+  Stream<Settings> watchSettings() async* {
+    final dao = await _dbHelper.settingsDao;
+    await for (final row in dao.watchSettingsRow()) {
+      if (row == null) {
+        const defaultEntity = SettingsEntity(
+          id: 1,
+          name: '',
+          phone: '',
+          address: '',
+          defaultInterestRate: 2.0,
+        );
+        await dao.insertSettings(defaultEntity);
+        yield _toDomain(defaultEntity);
+      } else {
+        yield _toDomain(row);
+      }
+    }
   }
+
+  @override
+  Stream<Settings> getSettings() => watchSettings();
 
   @override
   Future<Settings> getSettingsOnce() async {

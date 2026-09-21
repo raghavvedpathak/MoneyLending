@@ -52,7 +52,12 @@ void main() {
         ],
       );
 
-      final alerts = computeCollectionAlerts([record], rates, {'rec-exact-boundary': 0.0}, now);
+      final alerts = computeCollectionAlerts(
+        records: [record],
+        rates: rates,
+        totalPaidMap: {'rec-exact-boundary': 0.0},
+        today: now,
+      );
       final overshoots = alerts.whereType<OvershootWarning>().toList();
       expect(overshoots.length, 1);
       expect(overshoots.first.projectedOutstanding, 10400.0);
@@ -101,7 +106,12 @@ void main() {
         ],
       );
 
-      final alerts = computeCollectionAlerts([settledRecord, takenRecord], rates, {}, now);
+      final alerts = computeCollectionAlerts(
+        records: [settledRecord, takenRecord],
+        rates: rates,
+        totalPaidMap: {},
+        today: now,
+      );
       expect(alerts, isEmpty);
     });
 
@@ -134,7 +144,12 @@ void main() {
         ],
       );
 
-      final alerts = computeCollectionAlerts([record], rates, {'rec-snapshot-check': 0.0}, now);
+      final alerts = computeCollectionAlerts(
+        records: [record],
+        rates: rates,
+        totalPaidMap: {'rec-snapshot-check': 0.0},
+        today: now,
+      );
       // Collateral drop triggers because live collateral (6,000) <= totalDue (11,000)
       expect(alerts.any((a) => a is CollateralDrop), isTrue);
       // BUT OvershootWarning MUST NOT trigger because 11,400 < 15,000 snapshot!
@@ -204,6 +219,103 @@ void main() {
       expect(safeCard.isOvershoot, isFalse);
       expect(safeCard.isTriggered, isFalse);
       expect(safeCard.isSafe, isTrue);
+    });
+
+    test('5. projectedOutstanding is floored at 0.0 with math.max(0.0, ...) when payments exceed debt', () {
+      final record = LedgerRecord(
+        id: 'rec-overpaid',
+        transactionId: 'TXN-000045',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 5, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-1',
+            recordId: 'rec-overpaid',
+            name: 'Gold Ring',
+            itemCategory: 'GOLD_22K',
+            weight: 2.0,
+            purity: 100.0,
+            itemValue: 10000.0,
+          ),
+        ],
+      );
+
+      final risks = computeRecordRisks(
+        records: [record],
+        rates: rates,
+        today: now,
+        totalPaidMap: {'rec-overpaid': 20000.0}, // Huge overpayment
+      );
+      expect(risks.first.projectedOutstanding, 0.0);
+      expect(risks.first.overshoot, isFalse);
+    });
+
+    test('6. [FIX-TOTALPAID-SOURCE] Missing records in totalPaidMap strictly default to 0.0', () {
+      final recordWithPaymentsInEntity = LedgerRecord(
+        id: 'rec-entity-pay',
+        transactionId: 'TXN-000046',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        payments: [
+          Payment(
+            id: 'p-1',
+            recordId: 'rec-entity-pay',
+            amount: 8000.0,
+            date: DateTime(2026, 2, 1),
+            interestPaid: 200.0,
+            principalPaid: 7800.0,
+          ),
+        ],
+        items: const [
+          LedgerItem(
+            id: 'i-1',
+            recordId: 'rec-entity-pay',
+            name: 'Gold Ring',
+            itemCategory: 'GOLD_22K',
+            weight: 2.0,
+            purity: 100.0,
+            itemValue: 11000.0,
+          ),
+        ],
+      );
+
+      // When totalPaidMap is empty, computeRecordRisks must NOT sum record.payments!
+      final risks = computeRecordRisks(
+        records: [recordWithPaymentsInEntity],
+        rates: rates,
+        today: now,
+        totalPaidMap: {},
+      );
+      // Without payments considered from entity, projected = 10000 + (10000 * 2% * 7 mos) - 0 = 11,400 >= 11,000 -> overshoot triggers!
+      expect(risks.first.projectedOutstanding, 11400.0);
+      expect(risks.first.overshoot, isTrue);
+    });
+
+    test('7. CollectionAlertCardData preserves null collateral value and handles hasCollateral flag', () {
+      final uncollateralized = LedgerRecord(
+        id: 'rec-no-collat',
+        transactionId: 'TXN-000047',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 5, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [],
+      );
+
+      final cards = computeCollectionAlertCards([uncollateralized], rates, {}, now);
+      expect(cards.length, 1);
+      expect(cards.first.hasCollateral, isFalse);
+      expect(cards.first.currentCollateralValue, isNull);
     });
   });
 
@@ -314,6 +426,13 @@ void main() {
       expect(repoTotals.first.recordId, 'rec-1');
       expect(repoTotals.first.totalPaid, 800.0);
       expect(repoTotals.first, isA<RecordPaymentTotal>());
+    });
+
+    test('RecordRepository.watchTotalPaidFlow emits reactive stream of RecordPaymentTotal', () async {
+      final stream = recordRepo.watchTotalPaidFlow();
+      expect(stream, isA<Stream<List<RecordPaymentTotal>>>());
+      final firstEmission = await stream.first;
+      expect(firstEmission, isA<List<RecordPaymentTotal>>());
     });
   });
 }

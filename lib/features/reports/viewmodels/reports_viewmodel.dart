@@ -58,10 +58,12 @@ class ReportsViewModel {
   /// 0: Overview, 1: Customer, 2: Monthly, 3: Overdue
   Stream<int> get activeSubTabStream => _activeSubTabController.stream;
   int get activeSubTabIndex => _activeSubTabIndex;
+  set activeSubTabIndex(int value) => setActiveSubTab(value);
 
   /// Currently selected customer (if viewing customer statement or drilled-down tab)
   Stream<Customer?> get selectedCustomerStream => _selectedCustomerController.stream;
   Customer? get selectedCustomer => _selectedCustomer;
+  set selectedCustomer(Customer? value) => selectCustomer(value);
 
   /// Derived FAB visibility stream mandated by §6.1
   Stream<bool> get isFabVisibleStream => _isFabVisibleController.stream;
@@ -89,6 +91,21 @@ class ReportsViewModel {
       return ReportsFabAction.customerStatement;
     }
     return ReportsFabAction.none;
+  }
+
+  /// Direct tap handler function derived from active sub-tab and customer context (§6.1).
+  Future<void> Function()? getFabTapHandler({
+    required Future<void> Function() onAllCustomersReport,
+    required Future<void> Function(Customer customer) onCustomerStatement,
+  }) {
+    if (!isFabVisible) return null;
+    if (_activeSubTabIndex == 0) {
+      return onAllCustomersReport;
+    }
+    if (_activeSubTabIndex == 1 && _selectedCustomer != null) {
+      return () => onCustomerStatement(_selectedCustomer!);
+    }
+    return null;
   }
 
   // ===========================================================================
@@ -180,3 +197,7 @@ class ReportsViewModel {
     _fabActionController.close();
   }
 }
+
+/// Architectural alias mandated by §6.1 (`ReportsNotifier`).
+typedef ReportsNotifier = ReportsViewModel;
+

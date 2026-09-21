@@ -2,22 +2,24 @@ import '../../core/utils/app_date_formatter.dart';
 
 /// Data Layer Entity for 'payments' table.
 ///
-/// Mandated by Data Spec §4.1 and [FIX-TIMESTAMP-PAYMENT-1]:
+/// Mandated by Data Spec §4.1, [FIX-TIMESTAMP-PAYMENT-1], and [FIX-ID-FORMAT-1]:
 /// - id: UUID String (Primary Key)
 /// - recordId: Foreign key referencing records.id
 /// - amount: Total payment amount received
 /// - date: [FIX-TIMESTAMP-PAYMENT-1] ISO datetime string YYYY-MM-DDTHH:MM:SS
 /// - notes: Optional payment remarks
 /// - interestPaid: Portion of payment allocated to outstanding interest
+/// - principalPaid: Portion of payment allocated to principal reduction
+/// - paymentId: [FIX-ID-FORMAT-1] PAY + month (2 digits) + year (2 digits) + sequence (2 digits)
 class PaymentEntity {
   final String id;
   final String recordId;
-  // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Room schema migration; see §4.2 for full rationale.
   final double amount;
   final String date; // ISO Datetime YYYY-MM-DDTHH:MM:SS
   final String? notes;
   final double interestPaid;
   final double principalPaid;
+  final String paymentId; // PAY + MMYY + sequence
 
   const PaymentEntity({
     required this.id,
@@ -27,10 +29,11 @@ class PaymentEntity {
     this.notes,
     required this.interestPaid,
     required this.principalPaid,
+    this.paymentId = '',
   });
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'id': id,
       'recordId': recordId,
       'amount': amount,
@@ -39,6 +42,10 @@ class PaymentEntity {
       'interestPaid': interestPaid,
       'principalPaid': principalPaid,
     };
+    if (paymentId.isNotEmpty) {
+      map['paymentId'] = paymentId;
+    }
+    return map;
   }
 
   factory PaymentEntity.fromMap(Map<String, dynamic> map) {
@@ -50,6 +57,29 @@ class PaymentEntity {
       notes: map['notes'] as String?,
       interestPaid: (map['interestPaid'] as num).toDouble(),
       principalPaid: (map['principalPaid'] as num).toDouble(),
+      paymentId: (map['paymentId'] as String?) ?? '',
+    );
+  }
+
+  PaymentEntity copyWith({
+    String? id,
+    String? recordId,
+    double? amount,
+    String? date,
+    String? notes,
+    double? interestPaid,
+    double? principalPaid,
+    String? paymentId,
+  }) {
+    return PaymentEntity(
+      id: id ?? this.id,
+      recordId: recordId ?? this.recordId,
+      amount: amount ?? this.amount,
+      date: date ?? this.date,
+      notes: notes ?? this.notes,
+      interestPaid: interestPaid ?? this.interestPaid,
+      principalPaid: principalPaid ?? this.principalPaid,
+      paymentId: paymentId ?? this.paymentId,
     );
   }
 
@@ -69,3 +99,6 @@ class PaymentEntity {
   /// Formatted as "10 September 2026, 02:30 PM"
   String get formattedDateTime => AppDateFormatter.formatDateTime(parsedDateTime);
 }
+
+/// Drift/DAO alias mandated by Data Spec §4.4 (@DataClassName('PaymentEntityData'))
+typedef PaymentEntityData = PaymentEntity;

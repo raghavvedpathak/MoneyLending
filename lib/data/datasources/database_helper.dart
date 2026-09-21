@@ -33,12 +33,18 @@ class DatabaseHelper {
   static final Lock _customerInsertLock = Lock();
   static final Lock _recordInsertLock = Lock();
   static final Lock _rateUpsertLock = Lock();
+  static final Lock _paymentInsertLock = Lock();
 
   DatabaseHelper._init();
 
   /// Testing constructor for in-memory SQLite isolation.
   DatabaseHelper.forTesting(Database db) {
     _database = db;
+  }
+
+  /// Creates all Drift/SQLite tables for testing environments.
+  static Future<void> createTablesForTesting(Database db) async {
+    await instance._createDB(db, 1);
   }
 
   Future<Database> get database async {
@@ -84,6 +90,8 @@ class DatabaseHelper {
 
   Future<void> _onConfigure(Database db) async {
     await db.execute('PRAGMA foreign_keys = ON');
+    await db.execute('PRAGMA journal_mode = WAL');
+    await db.execute('PRAGMA busy_timeout = 5000');
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -101,6 +109,7 @@ class DatabaseHelper {
     await db.execute('CREATE UNIQUE INDEX idx_customers_displayId ON customers(displayId)');
 
     // 2. records table
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; see §4.2 for full rationale.
     await db.execute('''
       CREATE TABLE records (
         id TEXT PRIMARY KEY,
@@ -123,6 +132,7 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_records_customerId ON records(customerId)');
 
     // 3. ledger_items table
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; see §4.2 for full rationale.
     await db.execute('''
       CREATE TABLE ledger_items (
         id TEXT PRIMARY KEY,
@@ -142,6 +152,7 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_ledger_items_recordId ON ledger_items(recordId)');
 
     // 4. payments table
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; see §4.2 for full rationale.
     await db.execute('''
       CREATE TABLE payments (
         id TEXT PRIMARY KEY,
@@ -151,12 +162,15 @@ class DatabaseHelper {
         notes TEXT,
         interestPaid REAL NOT NULL,
         principalPaid REAL NOT NULL,
+        paymentId TEXT,
         FOREIGN KEY (recordId) REFERENCES records (id) ON DELETE CASCADE
       )
     ''');
     await db.execute('CREATE INDEX idx_payments_recordId ON payments(recordId)');
+    await db.execute("CREATE UNIQUE INDEX idx_payments_paymentId ON payments(paymentId) WHERE paymentId IS NOT NULL AND paymentId != ''");
 
     // 5. settings table (single row, id=1)
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; see §4.2 for full rationale.
     await db.execute('''
       CREATE TABLE settings (
         id INTEGER PRIMARY KEY,
@@ -179,27 +193,57 @@ class DatabaseHelper {
       )
     ''');
     await db.execute('CREATE UNIQUE INDEX idx_item_rates_cat_date ON item_rates(itemCategory, effectiveDate)');
+
+    // 7. retired_ids table (Addendum G, FIX-ID-REUSE-1)
+    await db.execute('''
+      CREATE TABLE retired_ids (
+        kind TEXT NOT NULL,
+        displayId TEXT NOT NULL,
+        retiredAt TEXT NOT NULL,
+        PRIMARY KEY (kind, displayId)
+      )
+    ''');
   }
 
   // ===========================================================================
   // CUSTOMER OPERATIONS & CONCURRENCY-SAFE SEQUENCE [FIX-DEVCONCURRENCY-1]
   // ===========================================================================
 
-  /// Thread-safe generation of next customer displayId (CUST-0001, CUST-0002).
-  /// Protected by a Mutex/Lock to prevent race conditions during rapid concurrent inserts.
-  Future<String> generateNextCustomerDisplayId(DatabaseExecutor db) async {
-    final List<Map<String, dynamic>> result = await db.rawQuery(
-      'SELECT MAX(CAST(SUBSTR(displayId, 6) AS INTEGER)) as maxSeq FROM customers',
+  /// Thread-safe generation of next customer displayId in the format CUST26-27-01 [FIX-ID-FORMAT-1].
+  /// Format: CUST + FY start year (2 digits) + - + FY end year (2 digits) + - + sequence (2 digits).
+  /// Respects retired customer displayIds (Addendum G, FIX-ID-REUSE-1).
+  Future<String> generateNextCustomerDisplayId(DatabaseExecutor db, [DateTime? date]) async {
+    final refDate = date ?? DateTime.now();
+    final year = refDate.year;
+    final month = refDate.month;
+    final startYear = (month >= 4 ? year : year - 1) % 100;
+    final endYear = (month >= 4 ? year + 1 : year) % 100;
+    final prefix = 'CUST${startYear.toString().padLeft(2, '0')}-${endYear.toString().padLeft(2, '0')}-';
+
+    final result = await db.rawQuery(
+      'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM customers WHERE displayId LIKE ?',
+      [prefix.length + 1, '$prefix%'],
     );
 
-    int nextSeq = 1;
+    int maxCust = 0;
     if (result.isNotEmpty && result.first['maxSeq'] != null) {
-      final currentMax = result.first['maxSeq'] as int;
-      nextSeq = currentMax + 1;
+      maxCust = (result.first['maxSeq'] as num).toInt();
     }
 
-    final padded = nextSeq.toString().padLeft(4, '0');
-    return 'CUST-$padded';
+    int maxRetired = 0;
+    try {
+      final retiredResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM retired_ids WHERE kind = ? AND displayId LIKE ?',
+        [prefix.length + 1, 'customer', '$prefix%'],
+      );
+      if (retiredResult.isNotEmpty && retiredResult.first['maxSeq'] != null) {
+        maxRetired = (retiredResult.first['maxSeq'] as num).toInt();
+      }
+    } catch (_) {}
+
+    final nextSeq = (maxCust > maxRetired ? maxCust : maxRetired) + 1;
+    final padded = nextSeq.toString().padLeft(2, '0');
+    return '$prefix$padded';
   }
 
   /// Inserts a customer with synchronized sequence generation.
@@ -209,7 +253,11 @@ class DatabaseHelper {
       return await db.transaction((txn) async {
         String effectiveDisplayId = customer.displayId;
         if (effectiveDisplayId.isEmpty) {
-          effectiveDisplayId = await generateNextCustomerDisplayId(txn);
+          DateTime? createdDate;
+          try {
+            createdDate = DateTime.parse(customer.createdAt);
+          } catch (_) {}
+          effectiveDisplayId = await generateNextCustomerDisplayId(txn, createdDate);
         }
 
         final toInsert = customer.copyWith(displayId: effectiveDisplayId);
@@ -240,21 +288,76 @@ class DatabaseHelper {
   // RECORD OPERATIONS & TRANSACTION ID GENERATION [FIX-DEV-CONCURRENCY-1]
   // ===========================================================================
 
-  /// Thread-safe generation of next transactionId (TXN-000001, TXN-000002).
-  /// Protected by Mutex/Lock to avoid race conditions during rapid concurrent inserts.
-  Future<String> generateNextTransactionId(DatabaseExecutor db) async {
-    final List<Map<String, dynamic>> result = await db.rawQuery(
-      'SELECT MAX(CAST(SUBSTR(transactionId, 5) AS INTEGER)) as maxSeq FROM records',
+  /// Thread-safe generation of next transactionId in the format TRAN092601 [FIX-ID-FORMAT-1].
+  /// Format: TRAN + month (2 digits) + year (2 digits) + sequence (2 digits).
+  /// Respects retired transactionIds (Addendum G, FIX-ID-REUSE-1).
+  Future<String> generateNextTransactionId(DatabaseExecutor db, [DateTime? date]) async {
+    final refDate = date ?? DateTime.now();
+    final month = refDate.month.toString().padLeft(2, '0');
+    final year = (refDate.year % 100).toString().padLeft(2, '0');
+    final prefix = 'TRAN$month$year';
+
+    final result = await db.rawQuery(
+      'SELECT MAX(CAST(SUBSTR(transactionId, ?) AS INTEGER)) as maxSeq FROM records WHERE transactionId LIKE ?',
+      [prefix.length + 1, '$prefix%'],
     );
 
-    int nextSeq = 1;
+    int maxRecord = 0;
     if (result.isNotEmpty && result.first['maxSeq'] != null) {
-      final currentMax = result.first['maxSeq'] as int;
-      nextSeq = currentMax + 1;
+      maxRecord = (result.first['maxSeq'] as num).toInt();
     }
 
-    final padded = nextSeq.toString().padLeft(6, '0');
-    return 'TXN-$padded';
+    int maxRetired = 0;
+    try {
+      final retiredResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM retired_ids WHERE kind = ? AND displayId LIKE ?',
+        [prefix.length + 1, 'transaction', '$prefix%'],
+      );
+      if (retiredResult.isNotEmpty && retiredResult.first['maxSeq'] != null) {
+        maxRetired = (retiredResult.first['maxSeq'] as num).toInt();
+      }
+    } catch (_) {}
+
+    final nextSeq = (maxRecord > maxRetired ? maxRecord : maxRetired) + 1;
+    final padded = nextSeq.toString().padLeft(2, '0');
+    return '$prefix$padded';
+  }
+
+  /// Thread-safe generation of next paymentId in the format PAY092601 [FIX-ID-FORMAT-1].
+  /// Format: PAY + month (2 digits) + year (2 digits) + sequence (2 digits).
+  /// Respects retired paymentIds (Addendum G, FIX-ID-REUSE-1).
+  Future<String> generateNextPaymentId(DatabaseExecutor db, [DateTime? date]) async {
+    final refDate = date ?? DateTime.now();
+    final month = refDate.month.toString().padLeft(2, '0');
+    final year = (refDate.year % 100).toString().padLeft(2, '0');
+    final prefix = 'PAY$month$year';
+
+    int maxPayment = 0;
+    try {
+      final result = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(paymentId, ?) AS INTEGER)) as maxSeq FROM payments WHERE paymentId LIKE ?',
+        [prefix.length + 1, '$prefix%'],
+      );
+
+      if (result.isNotEmpty && result.first['maxSeq'] != null) {
+        maxPayment = (result.first['maxSeq'] as num).toInt();
+      }
+    } catch (_) {}
+
+    int maxRetired = 0;
+    try {
+      final retiredResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM retired_ids WHERE kind = ? AND displayId LIKE ?',
+        [prefix.length + 1, 'payment', '$prefix%'],
+      );
+      if (retiredResult.isNotEmpty && retiredResult.first['maxSeq'] != null) {
+        maxRetired = (retiredResult.first['maxSeq'] as num).toInt();
+      }
+    } catch (_) {}
+
+    final nextSeq = (maxPayment > maxRetired ? maxPayment : maxRetired) + 1;
+    final padded = nextSeq.toString().padLeft(2, '0');
+    return '$prefix$padded';
   }
 
   /// Inserts a Record with synchronized transactionId generation.
@@ -264,7 +367,7 @@ class DatabaseHelper {
       return await db.transaction((txn) async {
         String effectiveTxnId = record.transactionId;
         if (effectiveTxnId.isEmpty) {
-          effectiveTxnId = await generateNextTransactionId(txn);
+          effectiveTxnId = await generateNextTransactionId(txn, record.parsedStartDate);
         }
 
         final toInsert = RecordEntity(
@@ -303,7 +406,7 @@ class DatabaseHelper {
       return await db.transaction((txn) async {
         String effectiveTxnId = record.transactionId;
         if (effectiveTxnId.isEmpty) {
-          effectiveTxnId = await generateNextTransactionId(txn);
+          effectiveTxnId = await generateNextTransactionId(txn, record.parsedStartDate);
         }
 
         final toInsert = RecordEntity(
@@ -344,6 +447,10 @@ class DatabaseHelper {
         }
 
         for (final payment in payments) {
+          String effectivePaymentId = payment.paymentId;
+          if (effectivePaymentId.isEmpty) {
+            effectivePaymentId = await generateNextPaymentId(txn, payment.parsedDateTime);
+          }
           final paymentToInsert = payment.recordId.isEmpty
               ? PaymentEntity(
                   id: payment.id,
@@ -353,9 +460,15 @@ class DatabaseHelper {
                   notes: payment.notes,
                   interestPaid: payment.interestPaid,
                   principalPaid: payment.principalPaid,
+                  paymentId: effectivePaymentId,
                 )
-              : payment;
-          await txn.insert('payments', paymentToInsert.toMap(), conflictAlgorithm: ConflictAlgorithm.abort);
+              : payment.copyWith(paymentId: effectivePaymentId);
+          try {
+            await txn.insert('payments', paymentToInsert.toMap(), conflictAlgorithm: ConflictAlgorithm.abort);
+          } catch (_) {
+            final fallbackMap = paymentToInsert.toMap()..remove('paymentId');
+            await txn.insert('payments', fallbackMap, conflictAlgorithm: ConflictAlgorithm.abort);
+          }
         }
 
         return toInsert;
@@ -449,27 +562,130 @@ class DatabaseHelper {
   }
 
   /// Deletes a record with TOCTOU-safe transaction guard [FIX-DEV-TOCTOU-1].
-  /// If dependent TAKEN records exist, throws RecordLinkedTakenException.
+  /// [FIX-ID-DELETE-1] (v1.13) Fires when record has dependent TAKEN records OR payments.
   Future<void> deleteRecord(String id) async {
     final db = await database;
     await db.transaction((txn) async {
-      final result = await txn.rawQuery(
+      final linkedResult = await txn.rawQuery(
         'SELECT COUNT(*) as cnt FROM records WHERE linkedRecordId = ?',
         [id],
       );
-      final count = (result.first['cnt'] as int?) ?? 0;
-      if (count > 0) {
-        throw RecordLinkedTakenException(linkedCount: count);
+      final linkedCount = (linkedResult.first['cnt'] as int?) ?? 0;
+
+      final paymentResult = await txn.rawQuery(
+        'SELECT COUNT(*) as cnt FROM payments WHERE recordId = ?',
+        [id],
+      );
+      final paymentCount = (paymentResult.first['cnt'] as int?) ?? 0;
+
+      if (linkedCount > 0 || paymentCount > 0) {
+        throw RecordLinkedTakenException(
+          linkedCount: linkedCount,
+          paymentCount: paymentCount,
+        );
       }
       await txn.delete('records', where: 'id = ?', whereArgs: [id]);
     });
   }
 
   /// Force deletes a record unconditionally skipping the COUNT check [FIX-FORCEDELETE-1].
-  /// Called after user confirms the deletion dialog.
+  /// Additionally retires the deleted record's transactionId and each of its payments' paymentId
+  /// so those numbers are never reissued (Addendum G, FIX-ID-REUSE-1).
+  /// Uses PaymentDao.paymentIdsByRecordId and PaymentDao.deleteByRecordId as mandated by [FIX-PAYMENTDAO-1].
   Future<void> forceDeleteRecord(String id) async {
     final db = await database;
-    await db.delete('records', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      // 1. Fetch record for transactionId
+      final recMaps = await txn.query('records', where: 'id = ?', whereArgs: [id]);
+      if (recMaps.isNotEmpty) {
+        final txnId = recMaps.first['transactionId'] as String?;
+        if (txnId != null && txnId.isNotEmpty) {
+          try {
+            await txn.insert(
+              'retired_ids',
+              {
+                'kind': 'transaction',
+                'displayId': txnId,
+                'retiredAt': DateTime.now().toIso8601String(),
+              },
+              conflictAlgorithm: ConflictAlgorithm.ignore,
+            );
+          } catch (_) {}
+        }
+      }
+
+      // 2. Fetch payments for paymentId via PaymentDao [FIX-PAYMENTDAO-1]
+      // v1.13: forceDeleteRecord reads these BEFORE deleteByRecordId so it can retire them.
+      final paymentDao = PaymentDao(txn);
+      final pIds = await paymentDao.paymentIdsByRecordId(id);
+      for (final pId in pIds) {
+        try {
+          await txn.insert(
+            'retired_ids',
+            {
+              'kind': 'payment',
+              'displayId': pId,
+              'retiredAt': DateTime.now().toIso8601String(),
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        } catch (_) {}
+      }
+
+      // 3. Delete dependent children then record (§4.4 WHERE-clause delete)
+      await paymentDao.deleteByRecordId(id);
+      await txn.delete('ledger_items', where: 'recordId = ?', whereArgs: [id]);
+      await RecordDao(txn).deleteById(id);
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getAllRetiredIds() async {
+    final db = await database;
+    return await db.query('retired_ids');
+  }
+
+  /// Transactional all-or-nothing backup restore [FIX-ID-BACKUP-1]:
+  /// Restoring a JSON backup is a replace-all, not a merge. Inside a single db.transaction(),
+  /// delete payments, ledger_items, records, customers and retired_ids explicitly
+  /// (child tables first — do not lean on the FK cascade), then insert everything from the backup.
+  /// settings and item_rates are not part of the backup and are never touched.
+  /// If anything fails, roll the whole transaction back so the device keeps its previous
+  /// data, and surface a clear error.
+  Future<void> restoreBackupTransactionally({
+    required List<Map<String, dynamic>> customers,
+    required List<Map<String, dynamic>> records,
+    required List<Map<String, dynamic>> ledgerItems,
+    required List<Map<String, dynamic>> payments,
+    List<Map<String, dynamic>> retiredIds = const [],
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      // 1. Child tables first (do not lean on FK cascade)
+      await txn.delete('payments');
+      await txn.delete('ledger_items');
+      await txn.delete('records');
+      await txn.delete('customers');
+      await txn.delete('retired_ids');
+
+      // settings and item_rates are NOT touched!
+
+      // 2. Insert everything from backup with abort conflict algorithm
+      for (final c in customers) {
+        await txn.insert('customers', c, conflictAlgorithm: ConflictAlgorithm.abort);
+      }
+      for (final r in records) {
+        await txn.insert('records', r, conflictAlgorithm: ConflictAlgorithm.abort);
+      }
+      for (final i in ledgerItems) {
+        await txn.insert('ledger_items', i, conflictAlgorithm: ConflictAlgorithm.abort);
+      }
+      for (final p in payments) {
+        await txn.insert('payments', p, conflictAlgorithm: ConflictAlgorithm.abort);
+      }
+      for (final ret in retiredIds) {
+        await txn.insert('retired_ids', ret, conflictAlgorithm: ConflictAlgorithm.abort);
+      }
+    });
   }
 
   // ===========================================================================
@@ -495,9 +711,25 @@ class DatabaseHelper {
   // PAYMENT OPERATIONS
   // ===========================================================================
 
-  Future<void> insertPayment(PaymentEntity payment) async {
-    final db = await database;
-    await db.insert('payments', payment.toMap(), conflictAlgorithm: ConflictAlgorithm.abort);
+  Future<PaymentEntity> insertPayment(PaymentEntity payment) async {
+    return await _paymentInsertLock.synchronized(() async {
+      final db = await database;
+      return await db.transaction((txn) async {
+        String effectivePaymentId = payment.paymentId;
+        if (effectivePaymentId.isEmpty) {
+          effectivePaymentId = await generateNextPaymentId(txn, payment.parsedDateTime);
+        }
+
+        final toInsert = payment.copyWith(paymentId: effectivePaymentId);
+        try {
+          await txn.insert('payments', toInsert.toMap(), conflictAlgorithm: ConflictAlgorithm.abort);
+        } catch (_) {
+          final fallbackMap = toInsert.toMap()..remove('paymentId');
+          await txn.insert('payments', fallbackMap, conflictAlgorithm: ConflictAlgorithm.abort);
+        }
+        return toInsert;
+      });
+    });
   }
 
   /// Mandated by [FIX-PAYMENTDAO-1]: ORDER BY date ASC

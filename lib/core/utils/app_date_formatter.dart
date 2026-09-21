@@ -23,10 +23,6 @@ class AppDateFormatter {
   // Input mask format: "10/09/2026"
   static final DateFormat _inputDateFormat = DateFormat('dd/MM/yyyy');
 
-  // ISO Storage formats
-  static final DateFormat _isoDateFormat = DateFormat('yyyy-MM-dd');
-  static final DateFormat _isoDateTimeFormat = DateFormat("yyyy-MM-dd'T'HH:mm:ss");
-
   // PDF Exact Timestamp format mandated by [FIX-TIMESTAMP-PDF-1]: "23/04/2026, 14:30"
   static final DateFormat _pdfTimestampFormat = DateFormat('dd/MM/yyyy, HH:mm');
 
@@ -91,8 +87,12 @@ class AppDateFormatter {
   }
 
   /// Formats a DateTime to standard ISO date: "YYYY-MM-DD"
+  /// Formats digits by hand (no DateFormat) to guarantee ASCII digits [FIX-TIMESTAMP-TYPECONVERTERS-1].
   static String toIsoDate(DateTime date) {
-    return _isoDateFormat.format(date);
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
   }
 
   /// Formats a DateTime for PDF exact timestamps: "dd/MM/yyyy, HH:mm" [FIX-TIMESTAMP-PDF-1]
@@ -101,8 +101,15 @@ class AppDateFormatter {
   }
 
   /// Formats a DateTime to standard ISO datetime: "YYYY-MM-DDTHH:MM:SS"
+  /// Formats digits by hand (no DateFormat) to guarantee ASCII digits [FIX-TIMESTAMP-TYPECONVERTERS-1].
   static String toIsoDateTime(DateTime dateTime) {
-    return _isoDateTimeFormat.format(dateTime);
+    final y = dateTime.year.toString().padLeft(4, '0');
+    final m = dateTime.month.toString().padLeft(2, '0');
+    final d = dateTime.day.toString().padLeft(2, '0');
+    final hh = dateTime.hour.toString().padLeft(2, '0');
+    final mm = dateTime.minute.toString().padLeft(2, '0');
+    final ss = dateTime.second.toString().padLeft(2, '0');
+    return '$y-$m-${d}T$hh:$mm:$ss';
   }
 }
 

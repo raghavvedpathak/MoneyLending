@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_lending/core/ui/state/ui_state.dart';
+import 'package:money_lending/core/ui/ui_state.dart';
 
 void main() {
   group('UiState tests [FIX-ARCH-STATE-1]', () {
@@ -47,6 +47,22 @@ void main() {
         error: (msg) => 'handled: $msg',
       );
       expect(result, 'handled: Failed to load');
+    });
+
+    test('Direct Loading, Success, Error classes and switch pattern matching (§2.5)', () {
+      const UiState<int> s1 = Loading();
+      const UiState<int> s2 = Success(100);
+      const UiState<int> s3 = Error('Network timeout');
+
+      String render(UiState<int> state) => switch (state) {
+            Loading() => 'spinner',
+            Error(:final message) => 'error: $message',
+            Success(:final data) => 'data: $data',
+          };
+
+      expect(render(s1), 'spinner');
+      expect(render(s2), 'data: 100');
+      expect(render(s3), 'error: Network timeout');
     });
   });
 }

@@ -1,5 +1,7 @@
 import 'dart:async';
+import '../../core/calculations/util/date_extensions.dart';
 import '../../core/utils/app_date_formatter.dart';
+import '../../domain/errors/customer_has_records_exception.dart';
 import '../../domain/models/customer.dart';
 import '../../domain/repositories/customer_repository.dart';
 import '../datasources/database_helper.dart';
@@ -23,13 +25,14 @@ class CustomerRepositoryImpl implements CustomerRepository {
   }
 
   Customer _toDomain(CustomerEntity entity) {
+    final parsed = AppDateFormatter.parseIso(entity.createdAt) ?? DateTime.now();
     return Customer(
       id: entity.id,
       displayId: entity.displayId,
       name: entity.name,
       phone: entity.phone,
       address: entity.address,
-      createdAt: AppDateFormatter.parseIso(entity.createdAt) ?? DateTime.now(),
+      createdAt: parsed.dateOnly,
     );
   }
 
@@ -49,6 +52,15 @@ class CustomerRepositoryImpl implements CustomerRepository {
     _refreshStream();
     return _customerStreamController.stream;
   }
+
+  @override
+  Future<List<Customer>> getAllCustomersOnce() async {
+    final entities = await _dbHelper.getAllCustomers();
+    return entities.map(_toDomain).toList();
+  }
+
+  @override
+  Future<void> refresh() => _refreshStream();
 
   @override
   Stream<Customer?> getCustomerById(String id) async* {
@@ -80,7 +92,17 @@ class CustomerRepositoryImpl implements CustomerRepository {
   @override
   Future<void> deleteCustomer(String id) async {
     final db = await _dbHelper.database;
-    await db.delete('customers', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      final res = await txn.rawQuery(
+        'SELECT COUNT(*) as cnt FROM records WHERE customerId = ?',
+        [id],
+      );
+      final count = (res.first['cnt'] as int?) ?? 0;
+      if (count > 0) {
+        throw CustomerHasRecordsException(customerId: id, recordCount: count);
+      }
+      await txn.delete('customers', where: 'id = ?', whereArgs: [id]);
+    });
     await _refreshStream();
   }
 }

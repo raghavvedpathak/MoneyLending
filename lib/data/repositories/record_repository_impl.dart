@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../core/calculations/util/date_extensions.dart';
 import '../../core/utils/app_date_formatter.dart';
 import '../../core/utils/uuid_generator.dart';
 import '../../domain/models/ledger_item.dart';
@@ -36,8 +37,9 @@ class RecordRepositoryImpl implements RecordRepository {
       whereArgs: [RecordStatus.ACTIVE.name],
       orderBy: 'startDate DESC',
     );
-    final summaryRecords = maps.map((m) => toSummaryRecord(RecordEntity.fromMap(m))).toList();
-    _recordsStreamController.add(summaryRecords);
+    final entities = maps.map((m) => RecordEntity.fromMap(m)).toList();
+    final fullRecords = await Future.wait(entities.map(_fetchFullRecord));
+    _recordsStreamController.add(fullRecords);
     final totals = await _fetchTotalPaid();
     _totalPaidStreamController.add(totals);
   }
@@ -62,11 +64,11 @@ class RecordRepositoryImpl implements RecordRepository {
       customerId: entity.customerId,
       customerName: entity.customerName,
       startDate: AppDateFormatter.parseIso(entity.startDate) ?? DateTime.now(),
-      endDate: entity.endDate != null ? AppDateFormatter.parseIso(entity.endDate) : null,
+      endDate: entity.endDate != null ? AppDateFormatter.parseIso(entity.endDate)?.dateOnly : null,
       principalAmount: entity.principalAmount,
       interestRate: entity.interestRate,
       status: RecordStatus.fromString(entity.status) ?? RecordStatus.ACTIVE,
-      settledDate: entity.settledDate != null ? AppDateFormatter.parseIso(entity.settledDate) : null,
+      settledDate: entity.settledDate != null ? AppDateFormatter.parseIso(entity.settledDate)?.dateOnly : null,
       calculatedInterest: entity.calculatedInterest,
       linkedRecordId: entity.linkedRecordId,
       items: const [],
@@ -87,11 +89,11 @@ class RecordRepositoryImpl implements RecordRepository {
       customerId: entity.customerId,
       customerName: entity.customerName,
       startDate: AppDateFormatter.parseIso(entity.startDate) ?? DateTime.now(),
-      endDate: entity.endDate != null ? AppDateFormatter.parseIso(entity.endDate) : null,
+      endDate: entity.endDate != null ? AppDateFormatter.parseIso(entity.endDate)?.dateOnly : null,
       principalAmount: entity.principalAmount,
       interestRate: entity.interestRate,
       status: RecordStatus.fromString(entity.status) ?? RecordStatus.ACTIVE,
-      settledDate: entity.settledDate != null ? AppDateFormatter.parseIso(entity.settledDate) : null,
+      settledDate: entity.settledDate != null ? AppDateFormatter.parseIso(entity.settledDate)?.dateOnly : null,
       calculatedInterest: entity.calculatedInterest,
       linkedRecordId: entity.linkedRecordId,
       items: items.map((i) => LedgerItem(
@@ -100,12 +102,12 @@ class RecordRepositoryImpl implements RecordRepository {
         name: i.name,
         itemCategory: i.itemCategory,
         description: i.description,
-        weight: i.weight,
-        purity: i.purity,
-        rate: i.rate,
-        itemValue: i.itemValue,
-        lendPercentage: i.lendPercentage,
-        lendableAmount: i.lendableAmount,
+        weight: i.weight ?? 0.0,
+        purity: i.purity ?? 0.0,
+        rate: i.rate ?? 0.0,
+        itemValue: i.itemValue ?? 0.0,
+        lendPercentage: i.lendPercentage ?? 0.0,
+        lendableAmount: i.lendableAmount ?? 0.0,
       )).toList(),
       payments: payments.map((p) => Payment(
         id: p.id,
@@ -153,10 +155,8 @@ class RecordRepositoryImpl implements RecordRepository {
   @override
   Stream<List<LedgerRecord>> getActiveGivenRecords() async* {
     final entities = await _dbHelper.getRecordsByType(RecordType.GIVEN.name);
-    final records = entities
-        .where((e) => e.status == RecordStatus.ACTIVE.name)
-        .map(toSummaryRecord)
-        .toList();
+    final activeEntities = entities.where((e) => e.status == RecordStatus.ACTIVE.name);
+    final records = await Future.wait(activeEntities.map(_fetchFullRecord));
     yield records;
   }
 
@@ -178,6 +178,17 @@ class RecordRepositoryImpl implements RecordRepository {
     final entities = maps.map((m) => RecordEntity.fromMap(m)).toList();
     return await Future.wait(entities.map(_fetchFullRecord));
   }
+
+  @override
+  Future<List<LedgerRecord>> getAllRecordsOnce() async {
+    final db = await _dbHelper.database;
+    final maps = await db.query('records', orderBy: 'startDate DESC');
+    final entities = maps.map((m) => RecordEntity.fromMap(m)).toList();
+    return await Future.wait(entities.map(_fetchFullRecord));
+  }
+
+  @override
+  Future<void> refresh() => _refreshStreams();
 
   @override
   Future<LedgerRecord?> getRecordById(String id) async {
@@ -300,30 +311,22 @@ class RecordRepositoryImpl implements RecordRepository {
   }
 
   @override
+  Stream<List<RecordPaymentTotal>> watchTotalPaidFlow() => getTotalPaidFlow();
+
+  @override
   Future<Map<String, DateTime?>> getActiveRecordLastActivityMap() async {
-    final db = await _dbHelper.database;
-    final results = await db.rawQuery('''
-      SELECT r.id as recordId, MAX(p.date) as lastPaymentDate
-      FROM records r
-      LEFT JOIN payments p ON r.id = p.recordId
-      WHERE r.status = ?
-      GROUP BY r.id
-    ''', [RecordStatus.ACTIVE.name]);
+    final recordDao = await _dbHelper.recordDao;
+    final rows = await recordDao.getActiveRecordLastActivityDates();
 
     final Map<String, DateTime?> activityMap = {};
-    for (final row in results) {
-      final recordId = row['recordId'] as String;
-      final rawDate = row['lastPaymentDate'] as String?;
+    for (final row in rows) {
+      final rawDate = row.lastPaymentDate;
       if (rawDate != null && rawDate.isNotEmpty) {
-        // Dual format parser handling ISO datetime and legacy date-only
+        // [FIX-DATE-PARSE-1] DateTime.tryParse(it)?.dateOnly handles both legacy date-only and ISO datetime
         final parsed = DateTime.tryParse(rawDate);
-        if (parsed != null) {
-          activityMap[recordId] = DateTime(parsed.year, parsed.month, parsed.day);
-        } else {
-          activityMap[recordId] = null;
-        }
+        activityMap[row.recordId] = parsed?.dateOnly;
       } else {
-        activityMap[recordId] = null;
+        activityMap[row.recordId] = null;
       }
     }
     return activityMap;
@@ -394,6 +397,24 @@ class RecordRepositoryImpl implements RecordRepository {
         }
       }
     });
+    await _refreshStreams();
+  }
+
+  @override
+  Future<void> restoreBackupTransactionally({
+    required List<Map<String, dynamic>> customers,
+    required List<Map<String, dynamic>> records,
+    required List<Map<String, dynamic>> ledgerItems,
+    required List<Map<String, dynamic>> payments,
+    List<Map<String, dynamic>> retiredIds = const [],
+  }) async {
+    await _dbHelper.restoreBackupTransactionally(
+      customers: customers,
+      records: records,
+      ledgerItems: ledgerItems,
+      payments: payments,
+      retiredIds: retiredIds,
+    );
     await _refreshStreams();
   }
 }

@@ -84,6 +84,15 @@ class RecordEntity {
     );
   }
 
+  /// Safe start date parser handling ISO datetime (YYYY-MM-DDTHH:MM:SS) per [FIX-TIMESTAMP-RECORD-1].
+  DateTime get parsedStartDate {
+    try {
+      return DateTime.parse(startDate);
+    } catch (_) {
+      return DateTime.now();
+    }
+  }
+
   /// Formatted as "10 September 2026"
   String get formattedStartDate => AppDateFormatter.formatDateString(startDate);
 
@@ -94,3 +103,6 @@ class RecordEntity {
   String? get formattedEndDate =>
       endDate != null ? AppDateFormatter.formatDateString(endDate) : null;
 }
+
+/// Drift/DAO alias mandated by Data Spec §4.4 (@DataClassName('RecordEntityData'))
+typedef RecordEntityData = RecordEntity;

@@ -105,5 +105,36 @@ void main() {
       expect(future.toSafePastDate(ref), isNull);
       expect((null as DateTime?).toSafePastDate(ref), isNull);
     });
+
+    // -------------------------------------------------------------------------
+    // addMonths() TESTS [FIX-ADDMONTHS-1]
+    // -------------------------------------------------------------------------
+    group('[FIX-ADDMONTHS-1] addMonths()', () {
+      test('2026-09-20 + 2 -> 2026-11-20', () {
+        final result = addMonths(DateTime(2026, 9, 20), 2);
+        expect(result, DateTime(2026, 11, 20));
+      });
+
+      test('2026-12-31 + 2 -> 2027-02-28 (common year clamping)', () {
+        final result = addMonths(DateTime(2026, 12, 31), 2);
+        expect(result, DateTime(2027, 2, 28));
+      });
+
+      test('2027-12-31 + 2 -> 2028-02-29 (leap year clamping)', () {
+        final result = addMonths(DateTime(2027, 12, 31), 2);
+        expect(result, DateTime(2028, 2, 29));
+      });
+
+      test('2026-01-31 + 1 -> 2026-02-28', () {
+        final result = addMonths(DateTime(2026, 1, 31), 1);
+        expect(result, DateTime(2026, 2, 28));
+      });
+
+      test('2026-03-15 + (-4) -> 2025-11-15 (negative floor division)', () {
+        final result = addMonths(DateTime(2026, 3, 15), -4);
+        expect(result, DateTime(2025, 11, 15));
+      });
+    });
   });
 }
+

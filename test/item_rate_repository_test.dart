@@ -8,6 +8,8 @@ void main() {
 
   late Database db;
   late ItemRateDao itemRateDao;
+  late DatabaseHelper dbHelper;
+  late ItemRateRepository itemRateRepo;
 
   setUpAll(() async {
     sqfliteFfiInit();
@@ -36,6 +38,8 @@ void main() {
       ),
     );
     itemRateDao = ItemRateDao(db);
+    dbHelper = DatabaseHelper.forTesting(db);
+    itemRateRepo = ItemRateRepositoryImpl(dbHelper);
   });
 
   tearDown(() async {
@@ -188,6 +192,116 @@ void main() {
 
       expect(rate.formattedEffectiveDate, '10 September 2026');
       expect(rate.formattedUpdatedAt, '10 September 2026, 02:30 PM');
+    });
+
+    test('ItemRateRepository watchCurrentRate streams latest rate for category or null (§4.5)', () async {
+      // Initially null
+      final initial = await itemRateRepo.watchCurrentRate('GOLD_22K').first;
+      expect(initial, isNull);
+
+      // Upsert a rate
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'r-1',
+        itemCategory: 'GOLD_22K',
+        ratePerUnit: 6500.0,
+        effectiveDate: DateTime(2026, 9, 20),
+        updatedAt: DateTime.now(),
+      ));
+
+      final fetched = await itemRateRepo.watchCurrentRate('GOLD_22K').first;
+      expect(fetched, isNotNull);
+      expect(fetched!.ratePerUnit, 6500.0);
+    });
+
+    test('ItemRateRepository watchCurrentRates streams latest rates for Rate Management Card (§4.5)', () async {
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'r-g',
+        itemCategory: 'GOLD_22K',
+        ratePerUnit: 6600.0,
+        effectiveDate: DateTime(2026, 9, 20),
+        updatedAt: DateTime.now(),
+      ));
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'r-s',
+        itemCategory: 'SILVER',
+        ratePerUnit: 95.0,
+        effectiveDate: DateTime(2026, 9, 20),
+        updatedAt: DateTime.now(),
+      ));
+
+      final allRates = await itemRateRepo.watchCurrentRates().first;
+      expect(allRates.length, 2);
+      expect(allRates.any((r) => r.itemCategory == 'GOLD_22K'), isTrue);
+      expect(allRates.any((r) => r.itemCategory == 'SILVER'), isTrue);
+    });
+
+    test('ItemRateRepository getCurrentRatesOnce executes one-shot fetch for background isolate [FIX-OVERDUECOLLATERAL-1]', () async {
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'r-bg',
+        itemCategory: 'DIAMOND',
+        ratePerUnit: 50000.0,
+        effectiveDate: DateTime(2026, 9, 20),
+        updatedAt: DateTime.now(),
+      ));
+
+      // Must be a Future<List<ItemRate>>, NOT a Stream
+      final futureRates = await itemRateRepo.getCurrentRatesOnce();
+      expect(futureRates, isA<List<ItemRate>>());
+      expect(futureRates.any((r) => r.itemCategory == 'DIAMOND'), isTrue);
+    });
+
+    test('ItemRateRepository watchRatesForDate filters by DateTime date (§4.5)', () async {
+      final date1 = DateTime(2026, 9, 15);
+      final date2 = DateTime(2026, 9, 20);
+
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'r-hist-1',
+        itemCategory: 'GOLD_18K',
+        ratePerUnit: 4800.0,
+        effectiveDate: date1,
+        updatedAt: DateTime.now(),
+      ));
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'r-hist-2',
+        itemCategory: 'GOLD_18K',
+        ratePerUnit: 5000.0,
+        effectiveDate: date2,
+        updatedAt: DateTime.now(),
+      ));
+
+      final ratesDate1 = await itemRateRepo.watchRatesForDate(date1).first;
+      expect(ratesDate1.length, 1);
+      expect(ratesDate1.first.ratePerUnit, 4800.0);
+
+      final ratesDate2 = await itemRateRepo.watchRatesForDate(date2).first;
+      expect(ratesDate2.length, 1);
+      expect(ratesDate2.first.ratePerUnit, 5000.0);
+    });
+
+    test('ItemRateRepository upsertRate preserves existing UUID id and never reassigns it (§4.5)', () async {
+      final initial = ItemRate(
+        id: 'fixed-uuid-12345',
+        itemCategory: 'BRONZE',
+        ratePerUnit: 500.0,
+        effectiveDate: DateTime(2026, 9, 20),
+        updatedAt: DateTime.now(),
+      );
+      await itemRateRepo.upsertRate(initial);
+
+      // Second upsert with different ID passed in
+      final updated = ItemRate(
+        id: 'new-unwanted-id',
+        itemCategory: 'BRONZE',
+        ratePerUnit: 550.0,
+        effectiveDate: DateTime(2026, 9, 20),
+        updatedAt: DateTime.now(),
+      );
+      await itemRateRepo.upsertRate(updated);
+
+      final current = await itemRateRepo.getCurrentRateOnce('BRONZE');
+      expect(current, isNotNull);
+      expect(current!.id, 'fixed-uuid-12345', reason: 'Existing UUID id must be preserved across upserts');
+      expect(current.ratePerUnit, 550.0);
     });
   });
 }

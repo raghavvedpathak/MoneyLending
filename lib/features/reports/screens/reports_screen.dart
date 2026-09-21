@@ -10,7 +10,12 @@ import '../../../domain/domain.dart';
 import '../viewmodels/reports_viewmodel.dart';
 
 class ReportsScreen extends StatefulWidget {
-  const ReportsScreen({super.key});
+  final int initialSubTab;
+
+  const ReportsScreen({
+    super.key,
+    this.initialSubTab = 0,
+  });
 
   @override
   State<ReportsScreen> createState() => _ReportsScreenState();
@@ -21,6 +26,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   late final TabController _tabController;
   final CustomerRepository _customerRepository = sl<CustomerRepository>();
   final RecordRepository _recordRepository = sl<RecordRepository>();
+  final ItemRateRepository _itemRateRepository = sl<ItemRateRepository>();
   final PdfShareService _pdfShareService = sl<PdfShareService>();
 
   StreamSubscription<List<Customer>>? _customerSub;
@@ -31,7 +37,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   void initState() {
     super.initState();
     _viewModel = ReportsViewModel();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 4, vsync: this, initialIndex: widget.initialSubTab);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         _viewModel.setActiveSubTab(_tabController.index);
@@ -84,11 +90,9 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
         final statement = await _viewModel.generateCustomerStatementPdf();
         if (statement == null) return;
         final bytes = await statement.buildPdf();
-        await _pdfShareService.sharePdf(
+        await _pdfShareService.shareCustomerStatement(
+          customer: _viewModel.selectedCustomer!,
           bytes: bytes,
-          fileName: 'customer_statement_${_viewModel.selectedCustomer!.displayId}',
-          subject: 'Customer Loan Statement - ${_viewModel.selectedCustomer!.name}',
-          chooserTitle: 'Share Customer Statement',
         );
       }
     } catch (e) {
@@ -147,7 +151,10 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                 recordRepository: _recordRepository,
               ),
               _MonthlyEarningsTab(recordRepository: _recordRepository),
-              _OverdueLoansTab(recordRepository: _recordRepository),
+              _OverdueLoansTab(
+                recordRepository: _recordRepository,
+                itemRateRepository: _itemRateRepository,
+              ),
             ],
           ),
         );
@@ -169,7 +176,7 @@ class _OverviewTab extends StatelessWidget {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
         final records = snapshot.data!;
-        final dashboard = CalculationEngine.getDashboard(records, DateTime.now());
+        final dashboard = CalculationEngine.getDashboard(records, today: DateTime.now().dateOnly);
 
         return ListView(
           padding: const EdgeInsets.all(16),
@@ -336,7 +343,7 @@ class _CustomerStatementTabState extends State<_CustomerStatementTab>
               }
 
               final records = snapshot.data!;
-              final customerReports = CalculationEngine.getCustomerReport([currentSelection], records, DateTime.now());
+              final customerReports = CalculationEngine.getCustomerReport([currentSelection], records, today: DateTime.now().dateOnly);
               final report = customerReports.isNotEmpty
                   ? customerReports.first
                   : CustomerReport(
@@ -418,22 +425,6 @@ class _MonthlyEarningsTab extends StatelessWidget {
 
   const _MonthlyEarningsTab({required this.recordRepository});
 
-  static const _monthNames = [
-    '',
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December'
-  ];
-
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<LedgerRecord>>(
@@ -462,11 +453,10 @@ class _MonthlyEarningsTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             ...earnings.map((e) {
-              final monthLabel = e.month >= 1 && e.month <= 12 ? _monthNames[e.month] : 'Month ${e.month}';
               return Card(
                 child: ListTile(
                   leading: const Icon(Icons.calendar_month, color: AppTheme.gold),
-                  title: Text('$monthLabel ${e.year}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Text(e.formattedMonth, style: const TextStyle(fontWeight: FontWeight.bold)),
                   trailing: Text(
                     CurrencyFormatter.format(e.interestReceived),
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.emerald),
@@ -483,8 +473,12 @@ class _MonthlyEarningsTab extends StatelessWidget {
 
 class _OverdueLoansTab extends StatelessWidget {
   final RecordRepository recordRepository;
+  final ItemRateRepository itemRateRepository;
 
-  const _OverdueLoansTab({required this.recordRepository});
+  const _OverdueLoansTab({
+    required this.recordRepository,
+    required this.itemRateRepository,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -492,7 +486,26 @@ class _OverdueLoansTab extends StatelessWidget {
       future: () async {
         final records = await recordRepository.getAllActiveRecordsOnce();
         final activityMap = await recordRepository.getActiveRecordLastActivityMap();
-        return CalculationEngine.getOverdue(records, activityMap, DateTime.now());
+        final rates = await itemRateRepository.getCurrentRatesOnce();
+        final today = DateTime.now().dateOnly;
+
+        // Activity-based overdue: gap >= 30 days (§8)
+        final activityBased = CalculationEngine.getOverdue(
+          records: records,
+          latestPaymentDates: activityMap,
+          today: today,
+          thresholdDays: 30,
+        );
+
+        // Collateral live-rate overdue ([FIX-OVERDUE-COLLATERAL-1] & [FIX-OVERDUE-RATES-1])
+        final collateralBased = CalculationEngine.computeCollateralOverdue(
+          records: records,
+          rates: rates,
+          today: today,
+        );
+
+        // Merged unified overdue records
+        return CalculationEngine.mergeOverdueRecords(activityBased, collateralBased);
       }(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
@@ -517,6 +530,17 @@ class _OverdueLoansTab extends StatelessWidget {
           itemCount: overdues.length,
           itemBuilder: (context, index) {
             final o = overdues[index];
+            final reasons = <String>[];
+            if (o.reasons.contains(OverdueReason.noActivity)) {
+              reasons.add('Inactive: ${o.daysSinceActivity} days');
+            }
+            if (o.reasons.contains(OverdueReason.collateralBreachedNow)) {
+              reasons.add('Collateral breached');
+            }
+            if (o.reasons.contains(OverdueReason.collateralProjected2Months)) {
+              reasons.add('Projected breach in 2 mos');
+            }
+
             return Card(
               child: ListTile(
                 leading: const Icon(Icons.timer_outlined, color: AppTheme.rose),
@@ -525,10 +549,14 @@ class _OverdueLoansTab extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Text(
-                  'Principal: ${CurrencyFormatter.format(o.record.principalAmount)} • Inactive: ${o.daysSinceActivity} days',
+                  'Principal: ${CurrencyFormatter.format(o.record.principalAmount)} • ${reasons.join(" • ")}',
                 ),
                 trailing: Text(
-                  'Last: ${o.formattedLastActivityDate}',
+                  o.lastActivityDate != null
+                      ? 'Last: ${o.formattedLastActivityDate}'
+                      : (o.currentCollateralValue != null
+                          ? 'Collateral: ${CurrencyFormatter.format(o.currentCollateralValue!)}'
+                          : ''),
                   style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                 ),
               ),

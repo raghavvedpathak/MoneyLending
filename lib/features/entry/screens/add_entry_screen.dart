@@ -108,12 +108,12 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
       recordId: '',
       name: name,
       itemCategory: _itemCategory,
-      weight: weight > 0 ? weight : null,
-      purity: purity > 0 ? purity : null,
-      rate: rate > 0 ? rate : null,
-      itemValue: itemValue > 0 ? itemValue : null,
+      weight: weight > 0 ? weight : 0.0,
+      purity: purity > 0 ? purity : 0.0,
+      rate: rate > 0 ? rate : 0.0,
+      itemValue: itemValue > 0 ? itemValue : 0.0,
       lendPercentage: 75.0,
-      lendableAmount: itemValue > 0 ? itemValue * 0.75 : null,
+      lendableAmount: itemValue > 0 ? itemValue * 0.75 : 0.0,
     );
 
     setState(() {
@@ -499,7 +499,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                             ),
                             title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                             subtitle: Text(
-                              '${item.itemCategory} • ${item.weight ?? 0}g • Value: ${CurrencyFormatter.format(item.itemValue ?? 0)}',
+                              '${item.itemCategory} • ${item.weight}g • Value: ${CurrencyFormatter.format(item.itemValue)}',
                               style: const TextStyle(color: AppTheme.textSecondary),
                             ),
                             trailing: IconButton(

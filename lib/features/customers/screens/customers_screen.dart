@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
+import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../core/utils/uuid_generator.dart';
 import '../../../domain/domain.dart';
-import '../../entry/screens/add_entry_screen.dart';
-import '../../entry/screens/loan_details_screen.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -134,7 +133,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   void _showCustomerDetailSheet(Customer customer) async {
     final records = await _recordRepository.getRecordsByCustomer(customer.id).first;
-    final customerReports = CalculationEngine.getCustomerReport([customer], records, DateTime.now());
+    final customerReports = CalculationEngine.getCustomerReport([customer], records, today: DateTime.now().dateOnly);
     final report = customerReports.isNotEmpty
         ? customerReports.first
         : CustomerReport(
@@ -258,10 +257,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     TextButton.icon(
                       onPressed: () {
                         Navigator.of(ctx).pop();
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => AddEntryScreen(preselectedCustomerId: customer.id),
-                          ),
+                        AppNavigator.navigate(
+                          context,
+                          AddEntryRoute(customerId: customer.id),
                         ).then((_) => _loadCustomers());
                       },
                       icon: const Icon(Icons.add, size: 16),
@@ -284,10 +282,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
                         borderRadius: BorderRadius.circular(12),
                         onTap: () async {
                           Navigator.of(ctx).pop();
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => LoanDetailsScreen(record: r),
-                            ),
+                          await AppNavigator.navigate(
+                            context,
+                            RecordDetailRoute(r.id, record: r),
                           );
                           if (mounted) {
                             _loadCustomers();

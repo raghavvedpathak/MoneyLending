@@ -1,7 +1,10 @@
 // Domain Layer: Pure Dart business entities, value objects, and domain contracts.
 // Zero UI imports, zero platform-specific dependencies.
 
+export 'errors/customer_has_records_exception.dart';
+export 'errors/item_pledged_exception.dart';
 export 'errors/record_linked_taken_exception.dart';
+export 'errors/stale_record_exception.dart';
 export 'models/business_info.dart';
 export 'models/collection_alert.dart';
 export 'models/customer.dart';

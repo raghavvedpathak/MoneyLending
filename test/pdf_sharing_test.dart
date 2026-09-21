@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/core/pdf/pdf.dart';
+import 'package:money_lending/domain/domain.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -42,11 +43,12 @@ void main() {
     });
 
     test('MainActivity.kt implements FileProvider and ShareCompat sharing channel', () {
-      final mainActivityFile = File('android/app/src/main/kotlin/com/moneylending/money_lending/MainActivity.kt');
+      final mainActivityFile = File('android/app/src/main/kotlin/com/moneylending/MainActivity.kt');
       expect(mainActivityFile.existsSync(), isTrue);
 
       final content = mainActivityFile.readAsStringSync();
 
+      expect(content.contains('package com.moneylending'), isTrue);
       expect(content.contains('com.moneylending/pdf_share'), isTrue);
       expect(content.contains('FileProvider.getUriForFile'), isTrue);
       expect(content.contains('ShareCompat.IntentBuilder'), isTrue);
@@ -94,6 +96,26 @@ void main() {
 
       expect(file.existsSync(), isTrue);
       expect(file.path.endsWith('.pdf'), isTrue);
+      expect(file.path.contains('pdfs'), isTrue);
+      expect(await file.readAsBytes(), dummyBytes);
+    });
+
+    test('Customer statement sharing creates \${customer.displayId}_statement.pdf in pdfs/ matching §6.3', () async {
+      final dummyBytes = Uint8List.fromList([0x25, 0x50, 0x44, 0x46, 0x2D, 0x32]);
+      final customer = Customer(
+        id: 'c-1',
+        displayId: 'CUST26-27-01',
+        name: 'Ramesh Sharma',
+        createdAt: DateTime(2026, 1, 1),
+      );
+
+      final file = await shareService.savePdfFile(
+        bytes: dummyBytes,
+        fileName: '${customer.displayId}_statement.pdf',
+      );
+
+      expect(file.existsSync(), isTrue);
+      expect(file.path.endsWith('CUST26-27-01_statement.pdf'), isTrue);
       expect(file.path.contains('pdfs'), isTrue);
       expect(await file.readAsBytes(), dummyBytes);
     });

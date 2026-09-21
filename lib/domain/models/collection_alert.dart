@@ -111,7 +111,7 @@ class OvershootWarning extends CollectionAlert {
 /// on a single card for an ACTIVE GIVEN record.
 class CollectionAlertCardData {
   final LedgerRecord record;
-  final double currentCollateralValue;
+  final double? currentCollateralValue;
   final double totalDue;
   final bool isCollateralUnderwater;
   final double projectedOutstanding;
@@ -122,7 +122,7 @@ class CollectionAlertCardData {
 
   const CollectionAlertCardData({
     required this.record,
-    required this.currentCollateralValue,
+    this.currentCollateralValue,
     required this.totalDue,
     required this.isCollateralUnderwater,
     required this.projectedOutstanding,
@@ -132,6 +132,9 @@ class CollectionAlertCardData {
     this.missingRateCategories = const [],
   });
 
+  /// True when record has pledged collateral items.
+  bool get hasCollateral => record.items.isNotEmpty;
+
   /// True when either collateral is underwater or 2-month overshoot triggers (§5.4).
   /// UI renders action line "Contact customer now." in bold red and tinted background.
   bool get isTriggered => isCollateralUnderwater || isOvershoot;
@@ -139,3 +142,31 @@ class CollectionAlertCardData {
   /// True when both collateral and projection are safe (neutral card surface).
   bool get isSafe => !isTriggered;
 }
+
+/// [FIX-RISK-VIEWMODEL-1] (v1.14) One entry per ACTIVE GIVEN record — safe records
+/// included — carrying every figure the unified Dashboard card and the Risk Summary
+/// need. Produced by computeRecordRisks(); computeCollectionAlerts() is derived from it.
+class RecordRisk {
+  const RecordRisk({
+    required this.record,
+    required this.currentCollateralValue,
+    required this.missingRateCategories,
+    required this.totalDue,
+    required this.projectedOutstanding,
+    required this.itemValueAtLending,
+  });
+
+  final LedgerRecord record;
+  final double? currentCollateralValue; // null when any item's category has no usable rate
+  final Set<String> missingRateCategories; // categories with no rate on file, or rate <= 0
+  final double totalDue; // calculateRecordFinancials(record, today).totalDue
+  final double projectedOutstanding; // owed at today + 2 months (accrual stops at endDate)
+  final double itemValueAtLending; // sum of LedgerItem.itemValue snapshots
+
+  bool get hasCollateral => record.items.isNotEmpty;
+  bool get collateralDrop =>
+      hasCollateral && currentCollateralValue != null && currentCollateralValue! <= totalDue;
+  bool get overshoot => hasCollateral && projectedOutstanding >= itemValueAtLending;
+  bool get atRisk => collateralDrop || overshoot;
+}
+

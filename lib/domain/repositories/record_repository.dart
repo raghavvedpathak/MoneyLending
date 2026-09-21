@@ -23,6 +23,12 @@ abstract class RecordRepository {
   /// One-shot fetch for Worker/background processes (NOT a Stream)
   Future<List<LedgerRecord>> getAllActiveRecordsOnce();
 
+  /// One-shot fetch for all records (both active and settled) for export and reporting
+  Future<List<LedgerRecord>> getAllRecordsOnce();
+
+  /// Refreshes all record and payment reactive streams
+  Future<void> refresh();
+
   /// One-shot fetch for stale-record checks (NOT a Stream)
   Future<LedgerRecord?> getRecordById(String id);
 
@@ -47,6 +53,9 @@ abstract class RecordRepository {
   /// Reactive stream of total paid amounts aggregated per record
   Stream<List<RecordPaymentTotal>> getTotalPaidFlow();
 
+  /// Reactive stream of total paid amounts aggregated per record (§5.4 [FIX-FEAT-OVERSHOOT-1]).
+  Stream<List<RecordPaymentTotal>> watchTotalPaidFlow();
+
   /// Map of recordId -> latest payment date (date component only), or null if no payments [FIX-REPO-MISSING-1]
   Future<Map<String, DateTime?>> getActiveRecordLastActivityMap();
 
@@ -57,4 +66,19 @@ abstract class RecordRepository {
   /// When importing a JSON backup of N records, wrap the entire import in a single transaction.
   /// If any record conflicts, roll back the entire import and throw an error.
   Future<void> importRecordsTransactionally(List<LedgerRecord> records);
+
+  /// Transactional all-or-nothing backup restore [FIX-ID-BACKUP-1]:
+  /// Restoring a JSON backup is a replace-all, not a merge. Inside a single db.transaction(),
+  /// delete payments, ledger_items, records, customers and retired_ids explicitly
+  /// (child tables first — do not lean on the FK cascade), then insert everything from the backup.
+  /// settings and item_rates are not part of the backup and are never touched.
+  /// If anything fails, roll the whole transaction back so the device keeps its previous
+  /// data, and surface a clear error.
+  Future<void> restoreBackupTransactionally({
+    required List<Map<String, dynamic>> customers,
+    required List<Map<String, dynamic>> records,
+    required List<Map<String, dynamic>> ledgerItems,
+    required List<Map<String, dynamic>> payments,
+    List<Map<String, dynamic>> retiredIds = const [],
+  });
 }

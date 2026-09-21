@@ -71,3 +71,6 @@ class CustomerEntity {
   /// Returns the parsed DateTime object.
   DateTime get parsedCreatedAt => AppDateFormatter.parseIso(createdAt) ?? DateTime.now();
 }
+
+/// Drift/DAO alias mandated by Data Spec §4.4 (@DataClassName('CustomerEntityData'))
+typedef CustomerEntityData = CustomerEntity;

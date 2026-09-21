@@ -8,6 +8,8 @@ void main() {
 
   late Database db;
   late SettingsDao settingsDao;
+  late DatabaseHelper dbHelper;
+  late SettingsRepository settingsRepo;
 
   setUpAll(() async {
     sqfliteFfiInit();
@@ -33,6 +35,8 @@ void main() {
       ),
     );
     settingsDao = SettingsDao(db);
+    dbHelper = DatabaseHelper.forTesting(db);
+    settingsRepo = SettingsRepositoryImpl(dbHelper);
   });
 
   tearDown(() async {
@@ -119,6 +123,59 @@ void main() {
       expect(settings.phone, '');
       expect(settings.address, '');
       expect(settings.defaultInterestRate, 2.0);
+    });
+
+    test('SettingsDao watchSettingsRow streams row and updates reactively (§4.6)', () async {
+      // 1. Initially null on empty table
+      final initial = await settingsDao.watchSettingsRow().first;
+      expect(initial, isNull);
+
+      // 2. Insert row
+      await settingsDao.insertSettings(const SettingsEntity(
+        id: 1,
+        name: 'Streamed Shop',
+        phone: '111',
+        address: 'Addr',
+        defaultInterestRate: 2.5,
+      ));
+
+      final fetched = await settingsDao.watchSettingsRow().first;
+      expect(fetched, isNotNull);
+      expect(fetched!.name, 'Streamed Shop');
+      expect(fetched.defaultInterestRate, 2.5);
+    });
+
+    test('SettingsRepository watchSettings emits default row on first access without throwing [FIX-ARCH-SETTINGS-1]', () async {
+      // Table is empty initially
+      final initialSettings = await settingsRepo.watchSettings().first;
+      expect(initialSettings.id, 1);
+      expect(initialSettings.name, '');
+      expect(initialSettings.phone, '');
+      expect(initialSettings.address, '');
+      expect(initialSettings.defaultInterestRate, 2.0);
+
+      // Verify row persisted into table
+      final rows = await db.query('settings');
+      expect(rows.length, 1);
+      expect(rows.first['defaultInterestRate'], 2.0);
+    });
+
+    test('SettingsRepository watchSettings reacts to updateSettings without requiring screen reload [FIX-ARCH-SETTINGS-1]', () async {
+      // Initialize first
+      await settingsRepo.watchSettings().first;
+
+      // Update interest rate to 3.5%
+      await settingsRepo.updateSettings(const Settings(
+        id: 1,
+        name: 'New Name',
+        phone: '555',
+        address: 'New Addr',
+        defaultInterestRate: 3.5,
+      ));
+
+      final updatedSettings = await settingsRepo.watchSettings().first;
+      expect(updatedSettings.name, 'New Name');
+      expect(updatedSettings.defaultInterestRate, 3.5);
     });
   });
 }

@@ -93,9 +93,9 @@ void main() {
       // Check on Jan 32 (Feb 1) at 00:01 (exactly 31 calendar days later)
       final today = DateTime(2026, 2, 1, 0, 1);
       final overdueList = getOverdue(
-        [record],
-        {'rec-chrono-1': null},
-        today,
+        records: [record],
+        latestPaymentDates: {'rec-chrono-1': null},
+        today: today,
         thresholdDays: 30,
       );
 

@@ -1,7 +1,7 @@
 /// Per-record financial calculation snapshot (§5.1, §5.2.1, & §5.2.2).
 ///
-/// Mandated by BLK-10 FIX:
-/// All 7 canonical financial fields must be supplied:
+/// Mandated by BLK-10 FIX & [FIX-FINANCIALS-OVERPAY-1]:
+/// All 8 canonical financial fields must be supplied:
 /// - totalInterest
 /// - totalPaid
 /// - interestPaid
@@ -9,6 +9,7 @@
 /// - outstandingInterest
 /// - outstandingPrincipal
 /// - totalDue
+/// - overpaymentAmount
 class Financials {
   final double totalInterest;
   final double totalPaid;
@@ -17,6 +18,7 @@ class Financials {
   final double outstandingInterest;
   final double outstandingPrincipal;
   final double totalDue;
+  final double overpaymentAmount;
   final double principal;
   final double months;
 
@@ -28,6 +30,7 @@ class Financials {
     required this.outstandingInterest,
     required this.outstandingPrincipal,
     required this.totalDue,
+    this.overpaymentAmount = 0.0,
     this.principal = 0.0,
     this.months = 0.0,
   });
@@ -47,6 +50,7 @@ class Financials {
     outstandingInterest: 0.0,
     outstandingPrincipal: 0.0,
     totalDue: 0.0,
+    overpaymentAmount: 0.0,
     principal: 0.0,
     months: 0.0,
   );

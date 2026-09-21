@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../core/di/injection.dart';
+import '../core/notifications/overdue_notification_service.dart';
 import '../core/ui/theme/app_theme.dart';
 import '../features/customers/customers.dart';
 import '../features/dashboard/dashboard.dart';
@@ -7,10 +10,14 @@ import '../features/settings/settings.dart';
 
 class AppShell extends StatefulWidget {
   final int initialTabIndex;
+  final int initialSubTab;
+  final StatefulNavigationShell? navigationShell;
 
   const AppShell({
     super.key,
     this.initialTabIndex = 0,
+    this.initialSubTab = 0,
+    this.navigationShell,
   });
 
   @override
@@ -19,22 +26,47 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   late int _currentIndex;
-
-  final List<Widget> _screens = const [
-    DashboardScreen(),
-    CustomersScreen(),
-    ReportsScreen(),
-    SettingsScreen(),
-  ];
+  late final List<Widget> _screens;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialTabIndex;
+    _screens = [
+      const DashboardScreen(),
+      const CustomersScreen(),
+      ReportsScreen(initialSubTab: widget.initialSubTab),
+      const SettingsScreen(),
+    ];
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && sl.isRegistered<OverdueNotificationService>()) {
+        sl<OverdueNotificationService>().checkPermissionsAndPrompt(context);
+      }
+    });
+  }
+
+  int get _selectedTab => widget.navigationShell?.currentIndex ?? _currentIndex;
+
+  void _onDestinationSelected(int index) {
+    if (widget.navigationShell != null) {
+      widget.navigationShell!.goBranch(
+        index,
+        initialLocation: index == widget.navigationShell!.currentIndex,
+      );
+    } else {
+      setState(() => _currentIndex = index);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final Widget bodyContent = widget.navigationShell ??
+        IndexedStack(
+          index: _currentIndex,
+          children: _screens,
+        );
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isTabletOrWide = constraints.maxWidth >= 720;
@@ -44,10 +76,8 @@ class _AppShellState extends State<AppShell> {
             body: Row(
               children: [
                 NavigationRail(
-                  selectedIndex: _currentIndex,
-                  onDestinationSelected: (index) {
-                    setState(() => _currentIndex = index);
-                  },
+                  selectedIndex: _selectedTab,
+                  onDestinationSelected: _onDestinationSelected,
                   backgroundColor: AppTheme.cardDark,
                   indicatorColor: AppTheme.gold.withValues(alpha: 0.18),
                   labelType: NavigationRailLabelType.all,
@@ -96,10 +126,7 @@ class _AppShellState extends State<AppShell> {
                 ),
                 const VerticalDivider(width: 1, thickness: 1, color: AppTheme.borderDark),
                 Expanded(
-                  child: IndexedStack(
-                    index: _currentIndex,
-                    children: _screens,
-                  ),
+                  child: bodyContent,
                 ),
               ],
             ),
@@ -107,15 +134,10 @@ class _AppShellState extends State<AppShell> {
         }
 
         return Scaffold(
-          body: IndexedStack(
-            index: _currentIndex,
-            children: _screens,
-          ),
+          body: bodyContent,
           bottomNavigationBar: NavigationBar(
-            selectedIndex: _currentIndex,
-            onDestinationSelected: (index) {
-              setState(() => _currentIndex = index);
-            },
+            selectedIndex: _selectedTab,
+            onDestinationSelected: _onDestinationSelected,
             destinations: const [
               NavigationDestination(
                 icon: Icon(Icons.dashboard_outlined),

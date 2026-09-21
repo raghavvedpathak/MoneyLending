@@ -86,10 +86,10 @@ void main() {
     test('calculateInterestForPeriod computes simple monthly interest', () {
       // 10,000 at 2% for 2 months = 400
       final interest = calculateInterestForPeriod(
-        10000.0,
-        2.0,
-        DateTime(2026, 4, 10),
-        DateTime(2026, 6, 10),
+        principal: 10000.0,
+        rate: 2.0,
+        start: DateTime(2026, 4, 10),
+        end: DateTime(2026, 6, 10),
       );
       expect(interest, 400.0);
     });
@@ -187,7 +187,7 @@ void main() {
       ];
 
       // 2 months later (1 March 2026)
-      final stats = getDashboard(records, DateTime(2026, 3, 1));
+      final stats = getDashboard(records, today: DateTime(2026, 3, 1));
 
       expect(stats.totalPrincipalGiven, 20000.0);
       expect(stats.totalInterestAccruedGiven, 800.0); // 20000 * 2% * 2m = 800
@@ -242,11 +242,11 @@ void main() {
       expect(monthly.length, 2);
 
       expect(monthly.first.year, 2026);
-      expect(monthly.first.month, 2);
+      expect(monthly.first.monthNumber, 2);
       expect(monthly.first.interestReceived, 500.0); // 200 + 300 in Feb
 
       expect(monthly.last.year, 2026);
-      expect(monthly.last.month, 3);
+      expect(monthly.last.monthNumber, 3);
       expect(monthly.last.interestReceived, 250.0); // 250 in Mar
     });
 
@@ -282,9 +282,9 @@ void main() {
       };
 
       final overdue = getOverdue(
-        [recActiveOld, recActiveRecent],
-        latestPaymentDates,
-        today,
+        records: [recActiveOld, recActiveRecent],
+        latestPaymentDates: latestPaymentDates,
+        today: today,
         thresholdDays: 30,
       );
 
@@ -337,5 +337,139 @@ void main() {
       expect(fullRecord.payments.length, 1);
       expect(fullRecord.payments.first.amount, 1000.0);
     });
+
+    test('§5.1 LedgerItem fineWeight and sourceItemId verification', () {
+      const item = LedgerItem(
+        id: 'item-1',
+        recordId: 'rec-1',
+        name: 'Gold Ring',
+        itemCategory: 'GOLD',
+        weight: 10.0,
+        purity: 91.6, // 22k
+        rate: 6000.0,
+        itemValue: 54960.0,
+        lendPercentage: 75.0,
+        lendableAmount: 41220.0,
+        sourceItemId: 'src-item-99',
+      );
+
+      // fineWeight = weight * (purity / 100) = 10.0 * 0.916 = 9.16
+      expect(item.fineWeight, closeTo(9.16, 0.001));
+      expect(item.sourceItemId, 'src-item-99');
+    });
+
+    test('§5.1 computeCollateralOverdue and mergeOverdueRecords [FIX-OVERDUECOLLATERAL-1]', () {
+      final today = DateTime(2026, 6, 1);
+
+      // GIVEN record where collateral has dropped below current totalDue
+      final recGivenBreached = LedgerRecord(
+        id: 'rec-breached-1',
+        transactionId: 'TXN-G-01',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 50000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'item-b1',
+            recordId: 'rec-breached-1',
+            name: 'Gold Chain',
+            itemCategory: 'GOLD',
+            weight: 10.0,
+            purity: 100.0,
+            rate: 6000.0,
+            itemValue: 60000.0,
+            lendPercentage: 80.0,
+            lendableAmount: 48000.0,
+          ),
+        ],
+      );
+
+      // TAKEN record where collateral is safe now but breaches in 2 months
+      final recTakenProjected = LedgerRecord(
+        id: 'rec-proj-1',
+        transactionId: 'TXN-T-01',
+        type: RecordType.TAKEN,
+        customerId: 'c-2',
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 40000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'item-p1',
+            recordId: 'rec-proj-1',
+            name: 'Silver Bar',
+            itemCategory: 'SILVER',
+            weight: 500.0,
+            purity: 100.0,
+            rate: 100.0,
+            itemValue: 50000.0,
+            lendPercentage: 80.0,
+            lendableAmount: 40000.0,
+          ),
+        ],
+      );
+
+      // Current live rates: Gold has dropped to 4000/g (item worth 40k, but totalDue is 50k + 5k = 55k -> breached!)
+      // Silver is 90/g (item worth 45k. Current obligation = 40k + 4k = 44k -> safe now. But in 2m obligation = 45.6k -> projected breach!)
+      final liveRates = [
+        ItemRate(
+          id: 'rate-1',
+          itemCategory: 'GOLD',
+          ratePerUnit: 4000.0,
+          effectiveDate: today,
+          updatedAt: today,
+        ),
+        ItemRate(
+          id: 'rate-2',
+          itemCategory: 'SILVER',
+          ratePerUnit: 90.0,
+          effectiveDate: today,
+          updatedAt: today,
+        ),
+      ];
+
+      final collateralOverdue = computeCollateralOverdue(
+        records: [recGivenBreached, recTakenProjected],
+        rates: liveRates,
+        today: today,
+      );
+
+      expect(collateralOverdue.length, 2);
+
+      final breachedRecord = collateralOverdue.firstWhere((o) => o.record.id == 'rec-breached-1');
+      expect(breachedRecord.reasons.contains(OverdueReason.collateralBreachedNow), isTrue);
+      expect(breachedRecord.reasons.contains(OverdueReason.collateralProjected2Months), isTrue);
+      expect(breachedRecord.currentCollateralValue, 40000.0);
+
+      final projectedRecord = collateralOverdue.firstWhere((o) => o.record.id == 'rec-proj-1');
+      expect(projectedRecord.reasons.contains(OverdueReason.collateralBreachedNow), isFalse);
+      expect(projectedRecord.reasons.contains(OverdueReason.collateralProjected2Months), isTrue);
+
+      // Now test mergeOverdueRecords composition with activity-based overdue
+      final activityOverdue = [
+        OverdueRecord(
+          record: recGivenBreached,
+          reasons: const {OverdueReason.noActivity},
+          daysSinceActivity: 152,
+          lastActivityDate: DateTime(2026, 1, 1),
+        ),
+      ];
+
+      final merged = mergeOverdueRecords(activityOverdue, collateralOverdue);
+      expect(merged.length, 2);
+
+      final mergedBreached = merged.firstWhere((m) => m.record.id == 'rec-breached-1');
+      // Reasons must be unioned!
+      expect(mergedBreached.reasons.contains(OverdueReason.noActivity), isTrue);
+      expect(mergedBreached.reasons.contains(OverdueReason.collateralBreachedNow), isTrue);
+      expect(mergedBreached.reasons.contains(OverdueReason.collateralProjected2Months), isTrue);
+      expect(mergedBreached.daysSinceActivity, 152);
+      expect(mergedBreached.currentCollateralValue, 40000.0);
+    });
   });
 }
+

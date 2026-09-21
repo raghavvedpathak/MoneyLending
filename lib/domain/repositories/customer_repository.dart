@@ -7,7 +7,9 @@ import '../models/customer.dart';
 abstract class CustomerRepository {
   Stream<List<Customer>> getAllCustomers();
   Stream<Customer?> getCustomerById(String id);
+  Future<List<Customer>> getAllCustomersOnce();
   Future<Customer> insertCustomer(Customer customer);
   Future<void> updateCustomer(Customer customer);
   Future<void> deleteCustomer(String id);
+  Future<void> refresh();
 }

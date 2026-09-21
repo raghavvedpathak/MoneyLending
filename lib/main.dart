@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/di/injection.dart';
+import 'core/navigation/app_router.dart';
+import 'core/notifications/overdue_notification_service.dart';
 import 'core/ui/theme/app_theme.dart';
-import 'features/entry/screens/add_entry_screen.dart';
-import 'presentation/app_shell.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,28 +19,35 @@ void main() async {
   // Initialize central dependency injection container
   await initServiceLocator();
 
+  // Initialize notification channels and reschedule daily 10:00 AM alarm (§8)
+  final notificationService = sl<OverdueNotificationService>();
+  await notificationService.initialize();
+  await notificationService.scheduleDailyAlarm();
+
+  // Listen to notification deep-links
+  OverdueNotificationService.deepLinkStream.listen((payload) {
+    if (payload == 'overdue') {
+      appRouter.go('/overdue');
+    }
+  });
+
   runApp(const MoneyLendingApp());
 }
 
 class MoneyLendingApp extends StatelessWidget {
-  const MoneyLendingApp({super.key});
+  final RouterConfig<Object>? routerConfig;
+
+  const MoneyLendingApp({super.key, this.routerConfig});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'ByajBook - Money Lending Ledger',
+    return MaterialApp.router(
+      routerConfig: routerConfig ?? appRouter,
+      title: 'MoneyLending',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.dark,
-      home: const AppShell(),
-      routes: {
-        'dashboard': (_) => const AppShell(initialTabIndex: 0),
-        'customers': (_) => const AppShell(initialTabIndex: 1),
-        'reports': (_) => const AppShell(initialTabIndex: 2),
-        'settings': (_) => const AppShell(initialTabIndex: 3),
-        'entry/add': (_) => const AddEntryScreen(),
-      },
     );
   }
 }

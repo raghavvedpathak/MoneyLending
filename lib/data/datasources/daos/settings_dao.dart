@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../models/settings_entity.dart';
 
@@ -6,13 +7,24 @@ import '../../models/settings_entity.dart';
 /// Mandated by Data Spec §4.2, §4.4, & §4.6 [FIX-ARCH-SETTINGS-1]:
 /// - Single-row table with id = 1.
 /// - Backing query: SELECT * FROM settings WHERE id = 1.
+/// - watchSettingsRow(): `Stream<SettingsEntityData?>` for reactive single-row observation.
 /// - insertSettings uses ConflictAlgorithm.ignore (OnConflictStrategy.IGNORE):
 ///   No-op if row already exists, safe to call on initial access.
 /// - upsertSettings uses ConflictAlgorithm.replace: safe for single-row settings table.
 class SettingsDao {
   final DatabaseExecutor _db;
+  static final StreamController<void> _settingsChanges = StreamController<void>.broadcast();
 
   const SettingsDao(this._db);
+
+  /// DAO backing query — single-row table (§4.6):
+  /// `Stream<SettingsEntityData?> watchSettingsRow()`
+  Stream<SettingsEntityData?> watchSettingsRow() async* {
+    yield await getSettingsEntity();
+    await for (final _ in _settingsChanges.stream) {
+      yield await getSettingsEntity();
+    }
+  }
 
   /// Backing query matching §4.6: SELECT * FROM settings WHERE id = 1
   /// Returns null if table is empty on first install.
@@ -46,6 +58,7 @@ class SettingsDao {
       settings.toMap(),
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+    _settingsChanges.add(null);
   }
 
   /// Upsert using ConflictAlgorithm.replace for setting updates
@@ -55,5 +68,6 @@ class SettingsDao {
       settings.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    _settingsChanges.add(null);
   }
 }

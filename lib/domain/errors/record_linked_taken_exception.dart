@@ -6,10 +6,14 @@
 /// If linkedCount > 0, throw RecordLinkedTakenException rather than deleting.
 class RecordLinkedTakenException implements Exception {
   final int linkedCount;
+  final int paymentCount;
 
-  const RecordLinkedTakenException({required this.linkedCount});
+  const RecordLinkedTakenException({
+    required this.linkedCount,
+    this.paymentCount = 0,
+  });
 
   @override
   String toString() =>
-      'RecordLinkedTakenException: Cannot delete GIVEN record because $linkedCount TAKEN record(s) are linked to it.';
+      'RecordLinkedTakenException: Cannot delete record because $linkedCount TAKEN record(s) and $paymentCount payment(s) are linked to it.';
 }

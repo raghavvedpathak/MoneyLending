@@ -39,8 +39,8 @@ class CustomerStatementReport {
     required this.settledRecordCount,
   });
 
-  /// Generates the offline PDF document bytes for this customer statement.
-  Future<Uint8List> buildPdf() async {
+  /// Builds the [pw.Document] widget tree for this customer statement (§6.1, §6.2).
+  pw.Document buildDocument() {
     final pdf = pw.Document();
     final targetDate = DateTime(generatedDate.year, generatedDate.month, generatedDate.day);
 
@@ -243,7 +243,12 @@ class CustomerStatementReport {
       ),
     );
 
-    return pdf.save();
+    return pdf;
+  }
+
+  /// Generates the offline PDF document bytes for this customer statement.
+  Future<Uint8List> buildPdf() async {
+    return buildDocument().save();
   }
 
   /// Builds a dedicated record section displaying:
@@ -258,9 +263,9 @@ class CustomerStatementReport {
     String itemDetails = 'None';
     if (record.items.isNotEmpty) {
       itemDetails = record.items.map((it) {
-        final val = it.itemValue ?? CalculationEngine.calculateItemValue(it);
-        final wt = it.weight != null ? '${it.weight}g' : '';
-        final pur = it.purity != null ? ' (${it.purity}%)' : '';
+        final val = it.itemValue > 0 ? it.itemValue : CalculationEngine.calculateItemValue(it);
+        final wt = it.weight > 0 ? '${it.weight}g' : '';
+        final pur = it.purity > 0 ? ' (${it.purity}%)' : '';
         return '${it.name} - $wt$pur [Rs. ${val.toStringAsFixed(0)}]';
       }).join(', ');
     }
@@ -273,7 +278,7 @@ class CustomerStatementReport {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          // Transaction ID Header (§6.2: surface transactionId e.g. TXN-000001)
+          // Transaction ID Header (§6.2: surface transactionId e.g. TRAN092601)
           // Mandates startDate formatted as "dd/MM/yyyy, HH:mm" ([FIX-TIMESTAMP-PDF-1])
           pw.Container(
             padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -287,7 +292,7 @@ class CustomerStatementReport {
                 pw.Row(
                   children: [
                     pw.Text(
-                      'Record: ',
+                      'Transaction ID: ',
                       style: const pw.TextStyle(color: PdfColors.grey300, fontSize: 8.5),
                     ),
                     pw.Text(
@@ -306,7 +311,7 @@ class CustomerStatementReport {
                   ],
                 ),
                 pw.Text(
-                  'Given At: ${AppDateFormatter.formatPdfTimestamp(record.startDate)}',
+                  '${record.isGiven ? "Given At" : "Taken At"}: ${AppDateFormatter.formatPdfTimestamp(record.startDate)}',
                   style: pw.TextStyle(
                     color: PdfColors.white,
                     fontWeight: pw.FontWeight.bold,
@@ -349,7 +354,7 @@ class CustomerStatementReport {
                 pw.SizedBox(height: 6),
 
                 // Payment history per record (§6.2 & [FIX-TIMESTAMP-PDF-1])
-                // datetime (“dd/MM/yyyy, HH:mm”), amount, interest portion, principal portion
+                // datetime (“dd/MM/yyyy, HH:mm”), payment ID (e.g. PAY092601), amount, interest portion, principal portion
                 if (record.payments.isNotEmpty) ...[
                   pw.Text(
                     'Payment History for ${record.transactionId}:',
@@ -357,10 +362,12 @@ class CustomerStatementReport {
                   ),
                   pw.SizedBox(height: 3),
                   pw.TableHelper.fromTextArray(
-                    headers: ['Date & Time', 'Amount Paid', 'Interest Portion', 'Principal Portion', 'Notes'],
+                    headers: ['Date & Time', 'Payment ID', 'Amount Paid', 'Interest Portion', 'Principal Portion', 'Notes'],
                     data: record.payments.map((p) {
+                      final paymentDisplayId = p.paymentId.isNotEmpty ? p.paymentId : (p.id.isNotEmpty ? p.id : '-');
                       return [
                         AppDateFormatter.formatPdfTimestamp(p.date),
+                        paymentDisplayId,
                         'Rs. ${p.amount.toStringAsFixed(2)}',
                         'Rs. ${p.interestPaid.toStringAsFixed(2)}',
                         'Rs. ${p.principalPaid.toStringAsFixed(2)}',
@@ -372,10 +379,11 @@ class CustomerStatementReport {
                     cellStyle: const pw.TextStyle(fontSize: 7),
                     cellAlignments: {
                       0: pw.Alignment.centerLeft,
-                      1: pw.Alignment.centerRight,
+                      1: pw.Alignment.centerLeft,
                       2: pw.Alignment.centerRight,
                       3: pw.Alignment.centerRight,
-                      4: pw.Alignment.centerLeft,
+                      4: pw.Alignment.centerRight,
+                      5: pw.Alignment.centerLeft,
                     },
                   ),
                 ] else ...[

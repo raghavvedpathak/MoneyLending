@@ -72,3 +72,6 @@ class LedgerItemEntity {
     );
   }
 }
+
+/// Drift/DAO alias mandated by Data Spec §4.4 (@DataClassName('LedgerItemEntityData'))
+typedef LedgerItemEntityData = LedgerItemEntity;

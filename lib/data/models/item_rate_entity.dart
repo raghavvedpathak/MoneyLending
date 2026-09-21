@@ -42,3 +42,6 @@ class ItemRateEntity {
     );
   }
 }
+
+/// Drift/DAO alias mandated by Data Spec §4.4 (@DataClassName('ItemRateEntityData'))
+typedef ItemRateEntityData = ItemRateEntity;

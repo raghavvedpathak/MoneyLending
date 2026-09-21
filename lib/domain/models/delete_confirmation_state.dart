@@ -7,16 +7,20 @@
 /// Null means no pending confirmation; non-null triggers confirmation dialog.
 class DeleteConfirmationState {
   final String recordId;
+  // TAKEN records whose linkedRecordId points at this record.
   final int linkedCount;
+  // v1.13: payments that will be deleted together with the record.
+  final int paymentCount;
 
   const DeleteConfirmationState({
     required this.recordId,
     required this.linkedCount,
+    this.paymentCount = 0,
   });
 
   @override
   String toString() =>
-      'DeleteConfirmationState(recordId: $recordId, linkedCount: $linkedCount)';
+      'DeleteConfirmationState(recordId: $recordId, linkedCount: $linkedCount, paymentCount: $paymentCount)';
 
   @override
   bool operator ==(Object other) =>
@@ -24,8 +28,9 @@ class DeleteConfirmationState {
       other is DeleteConfirmationState &&
           runtimeType == other.runtimeType &&
           recordId == other.recordId &&
-          linkedCount == other.linkedCount;
+          linkedCount == other.linkedCount &&
+          paymentCount == other.paymentCount;
 
   @override
-  int get hashCode => Object.hash(recordId, linkedCount);
+  int get hashCode => Object.hash(recordId, linkedCount, paymentCount);
 }

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
+import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
-import '../../payments/screens/add_payment_screen.dart';
 import 'edit_transaction_screen.dart';
 
 /// Screen displaying complete details for a single loan transaction,
@@ -68,10 +68,9 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
   }
 
   Future<void> _openAddPayment() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => AddPaymentScreen(record: _record),
-      ),
+    final result = await AppNavigator.navigate<bool>(
+      context,
+      AddPaymentRoute(recordId: _record.id, record: _record),
     );
     if (result == true && mounted) {
       await _loadDetails();
@@ -119,7 +118,7 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
 
     double totalCollateralValue = 0.0;
     for (final item in r.items) {
-      totalCollateralValue += (item.itemValue ?? calculateItemValue(item));
+      totalCollateralValue += (item.itemValue > 0 ? item.itemValue : calculateItemValue(item));
     }
 
     final totalPaid = r.payments.fold<double>(0.0, (sum, p) => sum + p.amount);
@@ -373,17 +372,17 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                                           ],
                                         ),
                                         const SizedBox(height: 4),
-                                        Text(
-                                          'Weight: ${item.weight ?? 0}g  |  Purity: ${item.purity ?? 0}%  |  Rate: ₹${item.rate ?? 0}/g',
-                                          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                                        ),
+                                          Text(
+                                            'Weight: ${item.weight}g  |  Purity: ${item.purity}%  |  Rate: ₹${item.rate}/g',
+                                            style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                          ),
                                       ],
                                     ),
                                   ),
-                                  Text(
-                                    CurrencyFormatter.format(item.itemValue ?? calculateItemValue(item)),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.gold),
-                                  ),
+                                    Text(
+                                      CurrencyFormatter.format(item.itemValue > 0 ? item.itemValue : calculateItemValue(item)),
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.gold),
+                                    ),
                                 ],
                               ),
                             );

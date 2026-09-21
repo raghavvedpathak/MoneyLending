@@ -207,31 +207,35 @@ void main() {
     });
 
     test('3. calculateInterestForPeriod simple interest formula verified', () {
-      // 20,000 at 2% for 5.0 months = (20000 * 2 * 5) / 100 = 2000.0
-      final interest = calculateInterestForPeriod(20000.0, 2.0, DateTime(2026, 1, 1), DateTime(2026, 6, 1));
+      final interest = calculateInterestForPeriod(
+        principal: 20000.0,
+        rate: 2.0,
+        start: DateTime(2026, 1, 1),
+        end: DateTime(2026, 6, 1),
+      );
       expect(interest, 2000.0);
     });
 
     test('4. allocatePayment interest-first rule verified', () {
       // Outstanding interest = 500
       // Payment 300 (<500) -> 300 interest, 0 principal
-      final alloc1 = allocatePayment(300.0, 500.0);
+      final alloc1 = allocatePayment(paymentAmount: 300.0, outstandingInterest: 500.0);
       expect(alloc1.interestPaid, 300.0);
       expect(alloc1.principalPaid, 0.0);
 
       // Payment 800 (>500) -> 500 interest, 300 principal
-      final alloc2 = allocatePayment(800.0, 500.0);
+      final alloc2 = allocatePayment(paymentAmount: 800.0, outstandingInterest: 500.0);
       expect(alloc2.interestPaid, 500.0);
       expect(alloc2.principalPaid, 300.0);
 
       // Zero outstanding interest -> 100% principal
-      final alloc3 = allocatePayment(400.0, 0.0);
+      final alloc3 = allocatePayment(paymentAmount: 400.0, outstandingInterest: 0.0);
       expect(alloc3.interestPaid, 0.0);
       expect(alloc3.principalPaid, 400.0);
     });
 
     test('5. getDashboard aggregates match exact manual figures', () {
-      final dashboard = getDashboard(allRecords, testToday);
+      final dashboard = getDashboard(allRecords, today: testToday);
 
       // GIVEN: recGivenActive1 (20k principal, 2k interest, 20.2k due) +
       //        recGivenActive2 (10k principal, 300 interest, 10.3k due)
@@ -247,7 +251,7 @@ void main() {
     });
 
     test('6. getCustomerReport aggregates match per-customer figures', () {
-      final reports = getCustomerReport(allCustomers, allRecords, testToday);
+      final reports = getCustomerReport(allCustomers, allRecords, today: testToday);
       expect(reports.length, 3);
 
       // Customer 1: recGivenActive1 (recTakenActive excluded from customer lending overview)
@@ -281,7 +285,12 @@ void main() {
         'rec-given-2': null,
       };
 
-      final overdue = getOverdue(allRecords, latestPaymentDates, testToday, thresholdDays: 30);
+      final overdue = getOverdue(
+        records: allRecords,
+        latestPaymentDates: latestPaymentDates,
+        today: testToday,
+        thresholdDays: 30,
+      );
       // Both active given records are overdue
       expect(overdue.length, 3); // recGivenActive1, recGivenActive2, recTakenActive (start 2026-02-01 = 120 days)
       expect(overdue.first.daysSinceActivity, 120); // recTakenActive is most inactive
@@ -310,7 +319,12 @@ void main() {
         'rec-given-2': 0.0,
       };
 
-      final alerts = computeCollectionAlerts(allRecords, rates, totalPaidMap, testToday);
+      final alerts = computeCollectionAlerts(
+        records: allRecords,
+        rates: rates,
+        today: testToday,
+        totalPaidMap: totalPaidMap,
+      );
       expect(alerts, isNotNull);
 
       final cards = computeCollectionAlertCards(allRecords, rates, totalPaidMap, testToday);
@@ -551,6 +565,516 @@ void main() {
       expect(fin.totalInterest, 2000.0);
       expect(fin.totalDue, 52000.0);
     });
+
+    test('[FIX-FINANCIALS-NET-1] Rate edited down nets interest paid in excess against principal', () {
+      // ₹10,000 at 3%/month, 2 months elapsed, ₹600 paid, then the rate edited to 2%
+      // → totalInterest 400, outstandingInterest 0, outstandingPrincipal 10,000, totalDue 9,800, overpaymentAmount 0
+      final editedRecord = LedgerRecord(
+        id: 'rec-netted-matrix',
+        transactionId: 'TXN-011',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0, // Edited down to 2%
+        status: RecordStatus.ACTIVE,
+        payments: [
+          Payment(
+            id: 'pay-net-1',
+            recordId: 'rec-netted-matrix',
+            amount: 600.0,
+            date: DateTime(2026, 3, 1),
+            interestPaid: 600.0, // Paid under previous 3% rate
+            principalPaid: 0.0,
+          ),
+        ],
+      );
+
+      final fin = calculateRecordFinancials(editedRecord, DateTime(2026, 3, 1));
+      expect(fin.totalInterest, 400.0);
+      expect(fin.outstandingInterest, 0.0);
+      expect(fin.outstandingPrincipal, 10000.0);
+      expect(fin.totalDue, 9800.0);
+      expect(fin.overpaymentAmount, 0.0);
+
+      // And a payment set that exceeds principal + interest → overpaymentAmount > 0 and totalDue 0
+      final overpaidRecord = LedgerRecord(
+        id: 'rec-overpaid-excess',
+        transactionId: 'TXN-012',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        payments: [
+          Payment(
+            id: 'pay-over-1',
+            recordId: 'rec-overpaid-excess',
+            amount: 12000.0, // Exceeds principal (10,000) + interest (400)
+            date: DateTime(2026, 3, 1),
+            interestPaid: 400.0,
+            principalPaid: 11600.0,
+          ),
+        ],
+      );
+
+      final finOver = calculateRecordFinancials(overpaidRecord, DateTime(2026, 3, 1));
+      expect(finOver.totalDue, 0.0);
+      expect(finOver.overpaymentAmount, 1600.0);
+      expect(finOver.outstandingInterest, 0.0);
+      expect(finOver.outstandingPrincipal, 0.0);
+    });
+
+    test('[FIX-ACCRUAL-END-1] Record with endDate before targetDate accrues only to endDate, after targetDate accrues to targetDate', () {
+      final recordCapped = LedgerRecord(
+        id: 'rec-accrual-capped',
+        transactionId: 'TXN-013',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        endDate: DateTime(2026, 3, 1), // 2 months
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+      );
+
+      // TargetDate is 2026-06-01 (5 months later), but endDate is 2026-03-01 -> Accrues only 2 months (400 interest)
+      final finCapped = calculateRecordFinancials(recordCapped, DateTime(2026, 6, 1));
+      expect(finCapped.months, 2.0);
+      expect(finCapped.totalInterest, 400.0);
+
+      // Record with endDate AFTER targetDate accrues to targetDate
+      final recordFutureEnd = LedgerRecord(
+        id: 'rec-accrual-future',
+        transactionId: 'TXN-014',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        endDate: DateTime(2026, 12, 1), // 11 months in future
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+      );
+
+      // TargetDate is 2026-04-01 (3 months) -> Accrues to targetDate (3 months, 600 interest)
+      final finFuture = calculateRecordFinancials(recordFutureEnd, DateTime(2026, 4, 1));
+      expect(finFuture.months, 3.0);
+      expect(finFuture.totalInterest, 600.0);
+    });
+  });
+
+  // ===========================================================================
+  // computeRecordRisks() COMPREHENSIVE MATRIX (§5.5 items a - h)
+  // ===========================================================================
+  group('5.5 computeRecordRisks Comprehensive Matrix ([FIX-RISK-VIEWMODEL-1 / FIX-RATE-USABLE-1 / FIX-ADDMONTHS-1])', () {
+    final sept20 = DateTime(2026, 9, 20);
+    final standardRates = [
+      ItemRate(
+        id: 'r-gold',
+        itemCategory: 'GOLD_22K',
+        ratePerUnit: 6000.0,
+        effectiveDate: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      ),
+      ItemRate(
+        id: 'r-silver',
+        itemCategory: 'SILVER',
+        ratePerUnit: 0.0, // Rate of 0.0 (item c)
+        effectiveDate: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      ),
+    ];
+
+    test('(a) record with no items raises no alert and gets "No collateral" state', () {
+      final uncollateralized = LedgerRecord(
+        id: 'rec-no-items',
+        transactionId: 'TXN-A01',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [],
+      );
+
+      final risks = computeRecordRisks(
+        records: [uncollateralized],
+        rates: standardRates,
+        today: sept20,
+      );
+
+      expect(risks.length, 1);
+      final risk = risks.first;
+      expect(risk.hasCollateral, isFalse);
+      expect(risk.currentCollateralValue, isNull);
+      expect(risk.collateralDrop, isFalse);
+      expect(risk.overshoot, isFalse);
+      expect(risk.atRisk, isFalse);
+
+      final alerts = alertsFromRisks(risks);
+      expect(alerts, isEmpty);
+    });
+
+    test('(b) item whose category has no rate -> currentCollateralValue is null, RateMissing emitted, no CollateralDrop', () {
+      final recordWithUnknownCat = LedgerRecord(
+        id: 'rec-unknown-cat',
+        transactionId: 'TXN-B01',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-plat',
+            recordId: 'rec-unknown-cat',
+            name: 'Platinum Ring',
+            itemCategory: 'PLATINUM', // No rate on file!
+            weight: 5.0,
+            purity: 100.0,
+            itemValue: 20000.0,
+          ),
+        ],
+      );
+
+      final risks = computeRecordRisks(
+        records: [recordWithUnknownCat],
+        rates: standardRates,
+        today: sept20,
+      );
+
+      expect(risks.first.currentCollateralValue, isNull);
+      expect(risks.first.missingRateCategories, contains('PLATINUM'));
+      expect(risks.first.collateralDrop, isFalse, reason: 'No collateralDrop when collateral is null');
+
+      final alerts = alertsFromRisks(risks);
+      expect(alerts.any((a) => a is RateMissing && a.itemCategory == 'PLATINUM'), isTrue);
+      expect(alerts.any((a) => a is CollateralDrop), isFalse);
+    });
+
+    test('(c) a rate of 0.0 is treated exactly like a missing rate', () {
+      final recordWithZeroRate = LedgerRecord(
+        id: 'rec-zero-rate',
+        transactionId: 'TXN-C01',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-sil',
+            recordId: 'rec-zero-rate',
+            name: 'Silver Item',
+            itemCategory: 'SILVER', // SILVER rate is 0.0 in standardRates
+            weight: 50.0,
+            purity: 100.0,
+            itemValue: 10000.0,
+          ),
+        ],
+      );
+
+      final risks = computeRecordRisks(
+        records: [recordWithZeroRate],
+        rates: standardRates,
+        today: sept20,
+      );
+
+      expect(risks.first.currentCollateralValue, isNull);
+      expect(risks.first.missingRateCategories, contains('SILVER'));
+      expect(risks.first.collateralDrop, isFalse);
+
+      final alerts = alertsFromRisks(risks);
+      expect(alerts.any((a) => a is RateMissing && a.itemCategory == 'SILVER'), isTrue);
+    });
+
+    test('(d) with today = 20 Sep the projection date is 20 Nov, not 1 Nov', () {
+      final sept20Date = DateTime(2026, 9, 20);
+      final projection = addMonths(sept20Date, 2);
+      expect(projection.year, 2026);
+      expect(projection.month, 11);
+      expect(projection.day, 20, reason: 'addMonths preserves day of month (20 Nov, not 1 Nov)');
+    });
+
+    test('(e) an endDate before the projection date caps the projected interest', () {
+      final sept20Date = DateTime(2026, 9, 20);
+      // Projection date is 2026-11-20.
+      // But record has endDate = 2026-10-20 (1 month after today)
+      final recordEndingEarly = LedgerRecord(
+        id: 'rec-end-early',
+        transactionId: 'TXN-E01',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 20),
+        endDate: DateTime(2026, 10, 20), // 2 months from start (caps at Oct 20)
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-gold',
+            recordId: 'rec-end-early',
+            name: 'Gold Ring',
+            itemCategory: 'GOLD_22K',
+            weight: 5.0, // 30,000 live
+            purity: 100.0,
+            itemValue: 20000.0,
+          ),
+        ],
+      );
+
+      final risks = computeRecordRisks(
+        records: [recordEndingEarly],
+        rates: standardRates,
+        today: sept20Date,
+      );
+
+      // Accrual from 2026-08-20 to 2026-10-20 is exactly 2.0 months = 400.0 interest
+      // If it accrued to 2026-11-20, it would be 3.0 months = 600.0 interest
+      expect(risks.first.projectedOutstanding, 10400.0);
+    });
+
+    test('(f) a safe record is present in the list with atRisk == false', () {
+      final safeRecord = LedgerRecord(
+        id: 'rec-safe-f',
+        transactionId: 'TXN-F01',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 20),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'i-safe',
+            recordId: 'rec-safe-f',
+            name: 'Gold Necklace',
+            itemCategory: 'GOLD_22K',
+            weight: 10.0, // 60,000 live collateral >> 5,100 totalDue
+            purity: 100.0,
+            itemValue: 50000.0, // 50,000 snapshot >> 5,300 projected
+          ),
+        ],
+      );
+
+      final risks = computeRecordRisks(
+        records: [safeRecord],
+        rates: standardRates,
+        today: sept20,
+      );
+
+      expect(risks.length, 1);
+      final risk = risks.first;
+      expect(risk.hasCollateral, isTrue);
+      expect(risk.collateralDrop, isFalse);
+      expect(risk.overshoot, isFalse);
+      expect(risk.atRisk, isFalse);
+      expect(risk.missingRateCategories, isEmpty);
+
+      // Safe records are omitted from the derived alert view
+      final alerts = alertsFromRisks(risks);
+      expect(alerts, isEmpty);
+    });
+
+    test('(g) the five-group sort order strictly enforced', () {
+      // 1. Both overshoot and collateral drop
+      final recBoth = LedgerRecord(
+        id: 'r-both',
+        transactionId: 'TXN-001',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2025, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 5.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-b',
+            recordId: 'r-both',
+            name: 'Item',
+            itemCategory: 'GOLD_22K',
+            weight: 1.0, // 6,000 live < totalDue -> drop
+            purity: 100.0,
+            itemValue: 8000.0, // snapshot < projected -> overshoot
+          ),
+        ],
+      );
+
+      // 2. Overshoot only
+      final recOvershoot = LedgerRecord(
+        id: 'r-overshoot',
+        transactionId: 'TXN-002',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2025, 9, 1),
+        principalAmount: 10000.0,
+        interestRate: 5.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-o',
+            recordId: 'r-overshoot',
+            name: 'Item',
+            itemCategory: 'GOLD_22K',
+            weight: 10.0, // 60,000 live (no drop)
+            purity: 100.0,
+            itemValue: 12000.0, // snapshot < projected 15000 -> overshoot
+          ),
+        ],
+      );
+
+      // 3. Drop only
+      final recDrop = LedgerRecord(
+        id: 'r-drop',
+        transactionId: 'TXN-003',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-d',
+            recordId: 'r-drop',
+            name: 'Item',
+            itemCategory: 'GOLD_22K',
+            weight: 1.5, // 9,000 live < 10,200 totalDue -> drop
+            purity: 100.0,
+            itemValue: 30000.0, // snapshot > projected -> no overshoot
+          ),
+        ],
+      );
+
+      // 4. Missing rate
+      final recMissing = LedgerRecord(
+        id: 'r-missing',
+        transactionId: 'TXN-004',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-m',
+            recordId: 'r-missing',
+            name: 'Silver Item',
+            itemCategory: 'SILVER', // rate is 0.0 -> missing
+            weight: 10.0,
+            purity: 100.0,
+            itemValue: 10000.0,
+          ),
+        ],
+      );
+
+      // 5. Safe records sorted by transactionId
+      final recSafe2 = LedgerRecord(
+        id: 'r-safe-2',
+        transactionId: 'TXN-010',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-s2',
+            recordId: 'r-safe-2',
+            name: 'Gold',
+            itemCategory: 'GOLD_22K',
+            weight: 10.0,
+            purity: 100.0,
+            itemValue: 50000.0,
+          ),
+        ],
+      );
+
+      final recSafe1 = LedgerRecord(
+        id: 'r-safe-1',
+        transactionId: 'TXN-005',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-s1',
+            recordId: 'r-safe-1',
+            name: 'Gold',
+            itemCategory: 'GOLD_22K',
+            weight: 10.0,
+            purity: 100.0,
+            itemValue: 50000.0,
+          ),
+        ],
+      );
+
+      final risks = computeRecordRisks(
+        records: [recSafe2, recMissing, recDrop, recOvershoot, recBoth, recSafe1],
+        rates: standardRates,
+        today: sept20,
+      );
+
+      expect(risks.length, 6);
+      expect(risks[0].record.id, 'r-both'); // Group 1
+      expect(risks[1].record.id, 'r-overshoot'); // Group 2
+      expect(risks[2].record.id, 'r-drop'); // Group 3
+      expect(risks[3].record.id, 'r-missing'); // Group 4
+      expect(risks[4].record.id, 'r-safe-1'); // Group 5 (TXN-005 before TXN-010)
+      expect(risks[5].record.id, 'r-safe-2'); // Group 5
+    });
+
+    test('(h) the result is identical when today is injected, whatever the device clock says', () {
+      final record = LedgerRecord(
+        id: 'rec-det',
+        transactionId: 'TXN-H01',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'it-det',
+            recordId: 'rec-det',
+            name: 'Gold Ring',
+            itemCategory: 'GOLD_22K',
+            weight: 2.0,
+            purity: 100.0,
+            itemValue: 15000.0,
+          ),
+        ],
+      );
+
+      // Injected date 1: 2026-06-01
+      final risks1 = computeRecordRisks(
+        records: [record],
+        rates: standardRates,
+        today: DateTime(2026, 6, 1),
+      );
+
+      // Injected date 2: 2026-06-01 (called again, output must be completely identical and deterministic)
+      final risks2 = computeRecordRisks(
+        records: [record],
+        rates: standardRates,
+        today: DateTime(2026, 6, 1),
+      );
+
+      expect(risks1.first.totalDue, risks2.first.totalDue);
+      expect(risks1.first.projectedOutstanding, risks2.first.projectedOutstanding);
+      expect(risks1.first.currentCollateralValue, risks2.first.currentCollateralValue);
+      expect(risks1.first.atRisk, risks2.first.atRisk);
+    });
   });
 
   // ===========================================================================
@@ -643,11 +1167,11 @@ void main() {
       expect(monthly.length, 2);
 
       expect(monthly[0].year, 2026);
-      expect(monthly[0].month, 2);
+      expect(monthly[0].monthNumber, 2);
       expect(monthly[0].interestReceived, 350.0); // 200 + 150
 
       expect(monthly[1].year, 2026);
-      expect(monthly[1].month, 4);
+      expect(monthly[1].monthNumber, 4);
       expect(monthly[1].interestReceived, 400.0);
     });
   });
@@ -658,7 +1182,7 @@ void main() {
   group('[FIX-ARCH-PDFTEST-1] Automated Drift Assertion Test', () {
     test('getDashboard() and generateAllCustomersReport() monetary totals match exactly', () async {
       // 1. Run getDashboard on canonical test dataset
-      final dashboard = getDashboard(allRecords, testToday);
+      final dashboard = getDashboard(allRecords, today: testToday);
 
       // 2. Run generateAllCustomersReport on identical dataset
       final report = generateAllCustomersReport(allCustomers, allRecords, testToday);

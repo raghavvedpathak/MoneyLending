@@ -2,34 +2,31 @@
 ///
 /// Mandated by Business Logic Spec §5.2 & [FIX-DEV-SAFEDATE-1]:
 /// Safe past date resolution for string and DateTime values.
-extension SafePastDateExtension on String? {
-  /// Parses a nullable/blank ISO date string, returning null if:
-  /// - the string is null or blank (handles legacy endDate="" records)
-  /// - the string fails to parse as DateTime
-  /// - the parsed date is in the future (not a valid past targetDate)
-  DateTime? toSafePastDate([DateTime? referenceNow]) {
-    if (this == null || this!.trim().isEmpty) return null;
-    try {
-      final parsed = DateTime.parse(this!.trim());
-      final parsedDate = DateTime(parsed.year, parsed.month, parsed.day);
-      final now = referenceNow ?? DateTime.now();
-      final nowDate = DateTime(now.year, now.month, now.day);
-      if (parsedDate.isAfter(nowDate)) return null;
-      return parsedDate;
-    } catch (_) {
-      return null;
-    }
+/// Parses a nullable/blank ISO date string, returning null if:
+/// - the string is null or blank (handles legacy endDate="" records)
+/// - the string fails to parse as a date
+/// - the parsed date is in the future (not a valid past targetDate)
+///
+/// Use for legacy String? fields (e.g. backup import):
+/// dateString.toSafePastDate(today) ?? today
+/// For DateTime? domain fields use accrualEndDate(record, today) instead.
+extension SafePastDate on String? {
+  DateTime? toSafePastDate(DateTime today) { // [FIX-CLOCK-1] today injected, no hidden clock
+    final s = this;
+    if (s == null || s.trim().isEmpty) return null;
+    final parsed = DateTime.tryParse(s)?.dateOnly;
+    if (parsed == null) return null;
+    if (parsed.isAfter(today)) return null;
+    return parsed;
   }
 }
 
 extension SafePastDateTimeExtension on DateTime? {
   /// Inline domain helper: returns null if date is in the future.
-  DateTime? toSafePastDate([DateTime? referenceNow]) {
+  DateTime? toSafePastDate(DateTime today) {
     if (this == null) return null;
-    final parsedDate = DateTime(this!.year, this!.month, this!.day);
-    final now = referenceNow ?? DateTime.now();
-    final nowDate = DateTime(now.year, now.month, now.day);
-    if (parsedDate.isAfter(nowDate)) return null;
+    final parsedDate = this!.dateOnly;
+    if (parsedDate.isAfter(today.dateOnly)) return null;
     return parsedDate;
   }
 }
@@ -52,4 +49,15 @@ extension DateTimeChronoUnitExtension on DateTime {
 
   /// Calendar days elapsed since [other]: ChronoUnit.DAYS.between(other, this).
   int daysSince(DateTime other) => daysBetween(other, this);
+}
+
+/// Date convention extension mandated by §4.2:
+/// Every field marked "date-only" (createdAt, endDate, settledDate, effectiveDate)
+/// is represented in the domain layer as a Dart DateTime whose time-of-day is always 00:00:00.000.
+extension DateOnly on DateTime {
+  /// Truncates to midnight, local time. Use for every "date-only" field
+  /// (createdAt, endDate, settledDate, effectiveDate) at every read/write
+  /// boundary. Never compare a "date-only" DateTime to a "datetime" DateTime
+  /// without calling .dateOnly on the datetime side first.
+  DateTime get dateOnly => DateTime(year, month, day);
 }

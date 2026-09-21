@@ -154,6 +154,82 @@ void main() {
       expect(fin.outstandingPrincipal, 0.0, reason: 'Must floor at 0.0');
       expect(fin.outstandingInterest, 0.0);
       expect(fin.totalDue, 0.0);
+      expect(fin.overpaymentAmount, 990.0); // 2000 totalPaid - (1000 principal + 10 interest accrued)
+    });
+
+    test('6. [FIX-ACCRUAL-END-1] accrualEndDate pure helper respects min(endDate, target) with no clock', () {
+      final recordWithEndDate = LedgerRecord(
+        id: 'rec-accrual-1',
+        transactionId: 'TXN-000005',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        endDate: DateTime(2026, 3, 1),
+        principalAmount: 1000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+      );
+
+      // Target after endDate -> returns endDate
+      final targetAfter = DateTime(2026, 5, 1);
+      expect(accrualEndDate(recordWithEndDate, targetAfter), DateTime(2026, 3, 1));
+
+      // Target before endDate -> returns target
+      final targetBefore = DateTime(2026, 2, 1);
+      expect(accrualEndDate(recordWithEndDate, targetBefore), DateTime(2026, 2, 1));
+
+      // Record with no endDate -> returns target
+      final recordNoEndDate = LedgerRecord(
+        id: 'rec-accrual-2',
+        transactionId: 'TXN-000006',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        endDate: null,
+        principalAmount: 1000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+      );
+      expect(accrualEndDate(recordNoEndDate, targetAfter), targetAfter);
+    });
+
+    test('7. [FIX-FINANCIALS-NET-1] Worked Example: interest paid in excess credits against principal in totalDue', () {
+      // Worked example: ₹10,000 at 3%/month, 2 months elapsed, customer pays ₹600 (all interest).
+      // Record is then edited to 2%/month.
+      // totalInterest = 400, rawOutstandingInterest = -200, rawOutstandingPrincipal = 10,000.
+      // totalDue = 9,800 (10000 + 400 - 600 = 9800).
+      // outstandingInterest = 0 (floored), outstandingPrincipal = 10000 (floored).
+      // overpaymentAmount = max(0, -(-200 + 10000)) = 0.
+      final editedRecord = LedgerRecord(
+        id: 'rec-netted-1',
+        transactionId: 'TXN-000007',
+        type: RecordType.GIVEN,
+        customerId: 'c-1',
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0, // Edited down to 2%
+        status: RecordStatus.ACTIVE,
+        payments: [
+          Payment(
+            id: 'pay-net-1',
+            recordId: 'rec-netted-1',
+            amount: 600.0,
+            date: DateTime(2026, 3, 1),
+            interestPaid: 600.0, // Paid under previous 3% rate
+            principalPaid: 0.0,
+          ),
+        ],
+      );
+
+      final fin = calculateRecordFinancials(editedRecord, DateTime(2026, 3, 1));
+
+      expect(fin.totalInterest, 400.0); // 10000 * 2% * 2 months
+      expect(fin.interestPaid, 600.0);
+      expect(fin.principalPaid, 0.0);
+      expect(fin.outstandingInterest, 0.0); // Individually floored for display
+      expect(fin.outstandingPrincipal, 10000.0); // Individually floored for display
+      expect(fin.totalDue, 9800.0); // Netted before flooring: -200 + 10000 = 9800
+      expect(fin.overpaymentAmount, 0.0);
     });
   });
 }

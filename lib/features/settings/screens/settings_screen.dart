@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/data/backup/backup.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/uuid_generator.dart';
@@ -25,6 +26,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isExporting = false;
+  bool _isRestoring = false;
 
   @override
   void initState() {
@@ -120,6 +123,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
           AppTheme.errorSnackBar('Error updating settings: $e'),
         );
       }
+    }
+  }
+
+  Future<void> _exportBackup() async {
+    setState(() => _isExporting = true);
+    try {
+      final backupService = sl<BackupService>();
+      final path = await backupService.exportBackup();
+      if (!mounted) return;
+      if (path != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          AppTheme.successSnackBar('Backup exported successfully: $path'),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          AppTheme.errorSnackBar('Failed to export backup: $e'),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<void> _importBackup() async {
+    try {
+      final backupService = sl<BackupService>();
+      final backup = await backupService.pickAndValidateBackup();
+      if (!mounted || backup == null) return;
+
+      // Show replace-all confirmation dialog (§7.2, Addendum G, FIX-ID-BACKUP-1)
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppTheme.gold),
+              SizedBox(width: 8),
+              Text('Restore Backup?'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Restoring this backup is a transactional replace-all operation. All existing customers, records, items, and payments on this device will be replaced.',
+                style: TextStyle(height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.cardDark,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.borderDark),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('• Version: ${backup.version}'),
+                    Text('• Customers: ${backup.customers.length}'),
+                    Text('• Records: ${backup.records.length}'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Are you sure you want to proceed? This cannot be undone.',
+                style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.rose),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.rose,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+              child: const Text('Restore (Replace All)'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true || !mounted) return;
+
+      setState(() => _isRestoring = true);
+      await backupService.restoreBackup(backup);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        AppTheme.successSnackBar(
+          'Backup restored successfully! ${backup.records.length} records loaded.',
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          AppTheme.errorSnackBar('Error restoring backup: $e'),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRestoring = false);
     }
   }
 
@@ -243,6 +356,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   labelText: 'Silver Rate (₹ / g)',
                                   prefixText: '₹ ',
                                 ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Backup & Restore (§7.2, Addendum G, FIX-ID-BACKUP-1)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.backup_rounded, color: AppTheme.accentCyan),
+                            SizedBox(width: 8),
+                            Text('JSON Backup & Restore', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Export an offline JSON backup or restore an existing one. Restoring replaces all records and customers transactionally (§7.2).',
+                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _isExporting || _isRestoring ? null : _exportBackup,
+                                icon: _isExporting
+                                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.file_upload_outlined),
+                                label: const Text('Export Backup'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _isExporting || _isRestoring ? null : _importBackup,
+                                icon: _isRestoring
+                                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.file_download_outlined),
+                                label: const Text('Restore Backup'),
                               ),
                             ),
                           ],

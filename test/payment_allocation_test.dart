@@ -10,10 +10,10 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  group('Interest-First Payment Allocation (§5.2.4)', () {
-    test('1. Partial payment less than outstanding interest: all goes to interest', () {
+  group('Interest-First Payment Allocation (§5.2.4 & [FIX-STEP3-GATE-1])', () {
+    test('1. (Case 2) Partial payment less than outstanding interest: all goes to interest', () {
       // Outstanding interest = 500, customer pays 200
-      final allocation = allocatePayment(200.0, 500.0);
+      final allocation = allocatePayment(paymentAmount: 200.0, outstandingInterest: 500.0);
 
       expect(allocation.interestPaid, 200.0);
       expect(allocation.principalPaid, 0.0);
@@ -25,38 +25,39 @@ void main() {
       expect(principalPaid, 0.0);
     });
 
-    test('2. Payment exactly equal to outstanding interest: extinguishes all interest', () {
+    test('2. (Case 4) Payment exactly equal to outstanding interest: extinguishes interest, principalPaid == 0.0', () {
       // Outstanding interest = 400, customer pays 400
-      final allocation = allocatePayment(400.0, 400.0);
+      final allocation = allocatePayment(paymentAmount: 400.0, outstandingInterest: 400.0);
 
       expect(allocation.interestPaid, 400.0);
       expect(allocation.principalPaid, 0.0);
     });
 
-    test('3. Payment exceeds outstanding interest: extinguishes interest, remainder reduces principal', () {
+    test('3. (Case 1) Payment exceeds outstanding interest: extinguishes interest, remainder reduces principal', () {
       // Outstanding interest = 400, customer pays 1500
-      final allocation = allocatePayment(1500.0, 400.0);
+      final allocation = allocatePayment(paymentAmount: 1500.0, outstandingInterest: 400.0);
 
       expect(allocation.interestPaid, 400.0);
       expect(allocation.principalPaid, 1100.0); // 1500 - 400
     });
 
-    test('4. Zero outstanding interest: 100% of payment reduces principal', () {
+    test('4. (Case 3) Zero outstanding interest: 100% of payment reduces principal', () {
       // Outstanding interest = 0, customer pays 1000
-      final allocation = allocatePayment(1000.0, 0.0);
+      final allocation = allocatePayment(paymentAmount: 1000.0, outstandingInterest: 0.0);
 
       expect(allocation.interestPaid, 0.0);
       expect(allocation.principalPaid, 1000.0);
     });
 
-    test('5. Payment amount <= 0 edge case returns zero allocation', () {
-      final zeroAlloc = allocatePayment(0.0, 500.0);
+    test('5. (Case 5) [FIX-ALLOCATE-NEGATIVE-1] Negative payment amount (refund) reduces principal, interest untouched', () {
+      // Customer refund / payback of overpayment
+      final negAlloc = allocatePayment(paymentAmount: -100.0, outstandingInterest: 500.0);
+      expect(negAlloc.interestPaid, 0.0);
+      expect(negAlloc.principalPaid, -100.0);
+
+      final zeroAlloc = allocatePayment(paymentAmount: 0.0, outstandingInterest: 500.0);
       expect(zeroAlloc.interestPaid, 0.0);
       expect(zeroAlloc.principalPaid, 0.0);
-
-      final negAlloc = allocatePayment(-100.0, 500.0);
-      expect(negAlloc.interestPaid, 0.0);
-      expect(negAlloc.principalPaid, 0.0);
     });
 
     test('6. Financials isPrincipalFullyPaid and LedgerRecord canBeSettled helpers', () {
@@ -161,7 +162,8 @@ void main() {
               date TEXT NOT NULL,
               notes TEXT,
               interestPaid REAL NOT NULL,
-              principalPaid REAL NOT NULL
+              principalPaid REAL NOT NULL,
+              paymentId TEXT
             );
           ''');
         },
@@ -201,7 +203,7 @@ void main() {
       expect(fin1.outstandingInterest, 400.0);
 
       // 3. User pays 500: interest-first allocation
-      final alloc1 = allocatePayment(500.0, fin1.outstandingInterest);
+      final alloc1 = allocatePayment(paymentAmount: 500.0, outstandingInterest: fin1.outstandingInterest);
       expect(alloc1.interestPaid, 400.0); // full interest extinguished
       expect(alloc1.principalPaid, 100.0); // 100 off principal
 
@@ -231,7 +233,7 @@ void main() {
       expect(fin2.outstandingPrincipal, 9900.0); // 10000 - 100
 
       // 7. Second payment of 9900: with outstandingInterest == 0.0, 100% goes to principal
-      final alloc2 = allocatePayment(9900.0, fin2.outstandingInterest);
+      final alloc2 = allocatePayment(paymentAmount: 9900.0, outstandingInterest: fin2.outstandingInterest);
       expect(alloc2.interestPaid, 0.0);
       expect(alloc2.principalPaid, 9900.0);
 

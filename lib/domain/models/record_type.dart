@@ -8,10 +8,15 @@ enum RecordType {
   GIVEN,
   TAKEN;
 
+  /// Lowercase aliases for typed equalsValue() matching [FIX-ENUM-CASE-1]
+  static const RecordType given = RecordType.GIVEN;
+  static const RecordType taken = RecordType.TAKEN;
+
   static RecordType? fromString(String? value) {
     if (value == null) return null;
     try {
-      return RecordType.values.firstWhere((e) => e.name == value);
+      final upper = value.toUpperCase();
+      return RecordType.values.firstWhere((e) => e.name.toUpperCase() == upper);
     } catch (_) {
       return null;
     }

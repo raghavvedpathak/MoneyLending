@@ -39,6 +39,7 @@ void main() {
       expect(financials.outstandingInterest, 0.0);
       expect(financials.outstandingPrincipal, 0.0);
       expect(financials.totalDue, 0.0);
+      expect(financials.overpaymentAmount, 0.0);
       expect(financials.principal, 10000.0);
       expect(financials.months, 2.0); // Jan 1 to Mar 1 = 2 months
     });
@@ -80,6 +81,7 @@ void main() {
       expect(financials.outstandingInterest, 0.0);
       expect(financials.outstandingPrincipal, 3200.0); // 5000 - 1800
       expect(financials.totalDue, 3200.0);
+      expect(financials.overpaymentAmount, 0.0);
       expect(financials.months, 0.0);
       expect(financials.principal, 5000.0);
     });
@@ -120,7 +122,76 @@ void main() {
       expect(financials.outstandingInterest, 0.0);
       expect(financials.outstandingPrincipal, 0.0);
       expect(financials.totalDue, 0.0);
+      expect(financials.overpaymentAmount, 0.0);
       expect(financials.months, 1.0);
+    });
+
+    test('4. [FIX-FINANCIALS-OVERPAY-1] Settled with non-null calculatedInterest and overpayment supplies overpaymentAmount', () {
+      final settledOverpaid = LedgerRecord(
+        id: 'rec-settled-overpaid',
+        transactionId: 'TXN-000004',
+        type: RecordType.GIVEN,
+        customerId: 'c-4',
+        startDate: DateTime(2026, 1, 1),
+        status: RecordStatus.SETTLED,
+        settledDate: DateTime(2026, 3, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        calculatedInterest: 400.0,
+        payments: [
+          Payment(
+            id: 'p-over-1',
+            recordId: 'rec-settled-overpaid',
+            amount: 11400.0,
+            date: DateTime(2026, 3, 1),
+            notes: 'Overpaid settlement',
+            interestPaid: 400.0,
+            principalPaid: 11000.0, // 1000 overpaid
+          ),
+        ],
+      );
+
+      final financials = calculateRecordFinancials(settledOverpaid, DateTime(2026, 12, 31));
+
+      expect(financials.totalInterest, 400.0);
+      expect(financials.outstandingInterest, 0.0);
+      expect(financials.outstandingPrincipal, 0.0);
+      expect(financials.totalDue, 0.0);
+      expect(financials.overpaymentAmount, 1000.0); // max(0.0, 11000 - 10000)
+    });
+
+    test('5. [FIX-FINANCIALS-OVERPAY-1] Legacy settled with null calculatedInterest/settledDate and overpayment derives both fields consistently', () {
+      final legacyOverpaid = LedgerRecord(
+        id: 'rec-legacy-overpaid',
+        transactionId: 'TXN-000005',
+        type: RecordType.GIVEN,
+        customerId: 'c-5',
+        startDate: DateTime(2026, 1, 1),
+        status: RecordStatus.SETTLED,
+        settledDate: null,
+        principalAmount: 5000.0,
+        interestRate: 2.0,
+        calculatedInterest: null,
+        payments: [
+          Payment(
+            id: 'p-leg-over-1',
+            recordId: 'rec-legacy-overpaid',
+            amount: 6000.0,
+            date: DateTime(2026, 2, 1),
+            notes: 'Overpaid legacy record',
+            interestPaid: 0.0,
+            principalPaid: 6000.0, // 1000 overpaid
+          ),
+        ],
+      );
+
+      final financials = calculateRecordFinancials(legacyOverpaid, DateTime(2026, 12, 31));
+
+      expect(financials.totalInterest, 0.0);
+      expect(financials.outstandingInterest, 0.0);
+      expect(financials.outstandingPrincipal, 0.0); // max(0.0, -1000)
+      expect(financials.totalDue, 0.0);
+      expect(financials.overpaymentAmount, 1000.0); // max(0.0, -(-1000))
     });
   });
 }
