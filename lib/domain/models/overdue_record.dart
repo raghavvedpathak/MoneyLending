@@ -1,4 +1,4 @@
-import '../../core/utils/app_date_formatter.dart';
+import '../../core/domain/util/date_format.dart';
 import 'ledger_record.dart';
 
 /// OverdueReason — why a record appears on the Overdue tab (§5.1 & [FIX-OVERDUE-COLLATERAL-1]).

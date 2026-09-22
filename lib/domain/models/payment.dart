@@ -1,4 +1,4 @@
-import '../../core/utils/app_date_formatter.dart';
+import '../../core/domain/util/date_format.dart';
 
 /// Pure Domain Entity for Payment.
 ///

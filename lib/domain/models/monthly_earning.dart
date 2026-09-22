@@ -1,4 +1,4 @@
-import '../../core/utils/app_date_formatter.dart';
+import '../../core/domain/util/date_format.dart';
 
 /// MonthlyEarning — cash-basis interest received in a given calendar month (§5.1 & [FIX-DOMAIN-MODELS-1]).
 ///
@@ -21,7 +21,7 @@ class MonthlyEarning {
   int get monthNumber => month.month;
 
   /// Formatted as "September 2026"
-  String get formattedMonth => AppDateFormatter.formatMonthYear(month);
+  String get formattedMonth => formatMonthYear(month);
 
   @override
   bool operator ==(Object other) =>

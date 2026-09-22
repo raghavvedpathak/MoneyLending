@@ -13,5 +13,6 @@ export 'ui/formatters/currency_formatter.dart';
 export 'ui/formatters/date_formatter.dart';
 export 'ui/state/ui_state.dart';
 export 'ui/widgets/date_input_field.dart';
+export 'ui/widgets/money_input_field.dart';
 export 'ui/widgets/ui_state_builder.dart';
 export 'utils/app_date_formatter.dart';

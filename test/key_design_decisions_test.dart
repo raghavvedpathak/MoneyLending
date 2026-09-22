@@ -137,6 +137,176 @@ void main() {
       expect(content.contains('targetSdk = 36'), isTrue);
       expect(content.contains('compileSdk = 36'), isTrue);
     });
+
+    test('[FIX-APPID-1] Zero stale names (byajbook, vjbilling, com.example) in android/, lib/, pubspec.yaml', () {
+      final staleRegex = RegExp(r'byajbook|vjbilling|com\.example', caseSensitive: false);
+      final directoriesToCheck = ['android', 'lib'];
+      final filesToCheck = ['pubspec.yaml'];
+
+      for (final dirPath in directoriesToCheck) {
+        final dir = Directory(dirPath);
+        if (dir.existsSync()) {
+          for (final entity in dir.listSync(recursive: true)) {
+            if (entity is File && !entity.path.contains('.git')) {
+              try {
+                final content = entity.readAsStringSync();
+                expect(
+                  staleRegex.hasMatch(content),
+                  isFalse,
+                  reason: 'Stale name found in ${entity.path}',
+                );
+              } catch (_) {
+                // Ignore binary files or unreadable entities
+              }
+            }
+          }
+        }
+      }
+
+      for (final filePath in filesToCheck) {
+        final file = File(filePath);
+        if (file.existsSync()) {
+          final content = file.readAsStringSync();
+          expect(
+            staleRegex.hasMatch(content),
+            isFalse,
+            reason: 'Stale name found in $filePath',
+          );
+        }
+      }
+    });
+
+    test('Clean Architecture §2.1: Domain layer is pure Dart and Presentation has zero direct DB imports', () {
+      final forbiddenInDomain = RegExp(r"import\s+['" + '"' + r"](package:flutter/|dart:io)");
+      final forbiddenInPresentation = RegExp(r"import\s+['" + '"' + r"].*(database_helper\.dart|package:sqflite|package:drift)");
+
+      final pureDartDirs = ['lib/domain', 'lib/core/calculations'];
+      for (final dirPath in pureDartDirs) {
+        final dir = Directory(dirPath);
+        if (dir.existsSync()) {
+          for (final entity in dir.listSync(recursive: true)) {
+            if (entity is File && entity.path.endsWith('.dart')) {
+              final content = entity.readAsStringSync();
+              expect(
+                forbiddenInDomain.hasMatch(content),
+                isFalse,
+                reason: 'Forbidden framework import in pure domain/calculation file: ${entity.path}',
+              );
+            }
+          }
+        }
+      }
+
+      final presentationDirs = ['lib/features', 'lib/presentation'];
+      for (final dirPath in presentationDirs) {
+        final dir = Directory(dirPath);
+        if (dir.existsSync()) {
+          for (final entity in dir.listSync(recursive: true)) {
+            if (entity is File && entity.path.endsWith('.dart')) {
+              final content = entity.readAsStringSync();
+              expect(
+                forbiddenInPresentation.hasMatch(content),
+                isFalse,
+                reason: 'Presentation/Feature directly touching DB instead of repository: ${entity.path}',
+              );
+            }
+          }
+        }
+      }
+    });
+
+    test('Dependency Flow §2.3: Cross-feature isolation and layer dependency flow', () {
+      // 1. No feature depends on another feature (navigation only)
+      final featureDirs = Directory('lib/features')
+          .listSync()
+          .whereType<Directory>()
+          .map((d) => d.uri.pathSegments.where((s) => s.isNotEmpty).last)
+          .toList();
+
+      for (final feat in featureDirs) {
+        final dir = Directory('lib/features/$feat');
+        for (final entity in dir.listSync(recursive: true)) {
+          if (entity is File && entity.path.endsWith('.dart')) {
+            final content = entity.readAsStringSync();
+            for (final otherFeat in featureDirs) {
+              if (otherFeat != feat) {
+                final crossFeatRegex = RegExp("import\\s+['\"].*(features/$otherFeat|\\.\\./$otherFeat)/");
+                expect(
+                  crossFeatRegex.hasMatch(content),
+                  isFalse,
+                  reason: 'Cross-feature dependency found in ${entity.path} targeting feature "$otherFeat"',
+                );
+              }
+            }
+          }
+        }
+      }
+
+      // 2. core/ui and core/pdf must NEVER import core/data or lib/data
+      final uiAndPdfDirs = ['lib/core/ui', 'lib/core/pdf'];
+      final forbiddenDataRegex = RegExp(r'''import\s+['"].*(core/data|/data/|package:money_lending/data)''');
+      for (final dirPath in uiAndPdfDirs) {
+        final dir = Directory(dirPath);
+        for (final entity in dir.listSync(recursive: true)) {
+          if (entity is File && entity.path.endsWith('.dart')) {
+            final content = entity.readAsStringSync();
+            expect(
+              forbiddenDataRegex.hasMatch(content),
+              isFalse,
+              reason: 'core/ui or core/pdf illegally importing data layer in ${entity.path}',
+            );
+          }
+        }
+      }
+
+      // 3. core/calculations depends only on core/domain and internal calculations
+      final calcDir = Directory('lib/core/calculations');
+      final forbiddenInCalc = RegExp(r'''import\s+['"].*(core/data|core/ui|core/navigation|features/|package:flutter)''');
+      for (final entity in calcDir.listSync(recursive: true)) {
+        if (entity is File && entity.path.endsWith('.dart')) {
+          final content = entity.readAsStringSync();
+          expect(
+            forbiddenInCalc.hasMatch(content),
+            isFalse,
+            reason: 'core/calculations has forbidden dependency in ${entity.path}',
+          );
+        }
+      }
+
+      // 4. core/domain and domain depend on nothing else in the app
+      final domainDirs = ['lib/domain', 'lib/core/domain'];
+      final forbiddenInDomain = RegExp(r'''import\s+['"].*(core/data|core/ui|core/navigation|core/calculations|features/|package:money_lending/(core/)?(data|ui|navigation|calculations))''');
+      for (final dirPath in domainDirs) {
+        final dir = Directory(dirPath);
+        for (final entity in dir.listSync(recursive: true)) {
+          if (entity is File && entity.path.endsWith('.dart')) {
+            final content = entity.readAsStringSync();
+            expect(
+              forbiddenInDomain.hasMatch(content),
+              isFalse,
+              reason: 'core/domain depends on forbidden internal module in ${entity.path}',
+            );
+          }
+        }
+      }
+
+      // 5. core/data and lib/data must never import features/
+      final dataDirs = ['lib/data', 'lib/core/data'];
+      final forbiddenInDb = RegExp(r'''import\s+['"].*features/''');
+      for (final dirPath in dataDirs) {
+        final dir = Directory(dirPath);
+        for (final entity in dir.listSync(recursive: true)) {
+          if (entity is File && entity.path.endsWith('.dart')) {
+            final content = entity.readAsStringSync();
+            expect(
+              forbiddenInDb.hasMatch(content),
+              isFalse,
+              reason: 'Data layer importing features in ${entity.path}',
+            );
+          }
+        }
+      }
+    });
   });
 
   group('Database & Repository §4.2 Integration Tests', () {

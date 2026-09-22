@@ -3,6 +3,16 @@ import 'package:money_lending/core/core.dart';
 
 void main() {
   group('AppDateFormatter tests', () {
+    test('formats DateTime as "20 September 2026" and single-digit day without zero [FIX-DATEFORMAT-1]', () {
+      final date = DateTime(2026, 9, 20);
+      expect(formatDate(date), '20 September 2026');
+
+      final singleDigitDay = DateTime(2026, 9, 5);
+      expect(formatDate(singleDigitDay), '5 September 2026');
+
+      expect(formatMonthYear(date), 'September 2026');
+    });
+
     test('formats DateTime as "10 September 2026"', () {
       final date = DateTime(2026, 9, 10);
       expect(formatDate(date), '10 September 2026');

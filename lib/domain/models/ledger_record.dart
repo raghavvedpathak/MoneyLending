@@ -1,4 +1,4 @@
-import '../../core/utils/app_date_formatter.dart';
+import '../../core/domain/util/date_format.dart';
 import 'ledger_item.dart';
 import 'payment.dart';
 import 'record_status.dart';

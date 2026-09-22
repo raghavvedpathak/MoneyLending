@@ -1,24 +1,21 @@
 import 'package:intl/intl.dart';
+import '../domain/util/date_format.dart' as pure_date;
+
+export '../domain/util/date_format.dart';
 
 /// Single Authoritative Central Date Formatter for MoneyLending.
 ///
-/// Mandated User Directive:
+/// Mandated User Directive and [FIX-DATEFORMAT-1]:
 /// - Single central source of truth for all date/time formatting across the entire app.
-/// - Display date format: "date month year", e.g. "10 September 2026".
+/// - Display date format: "date month year", e.g. "20 September 2026" (pure Dart, no intl).
 /// - Display datetime format: "10 September 2026, 02:30 PM".
 /// - Input mask format: "DD/MM/YYYY".
 /// - Storage format: Standard ISO-8601 (YYYY-MM-DD / YYYY-MM-DDTHH:MM:SS).
 class AppDateFormatter {
   AppDateFormatter._();
 
-  // Date format: "10 September 2026"
-  static final DateFormat _displayDateFormat = DateFormat('d MMMM yyyy');
-
   // DateTime format: "10 September 2026, 02:30 PM"
   static final DateFormat _displayDateTimeFormat = DateFormat('d MMMM yyyy, hh:mm a');
-
-  // Month-Year format: "September 2026"
-  static final DateFormat _monthYearFormat = DateFormat('MMMM yyyy');
 
   // Input mask format: "10/09/2026"
   static final DateFormat _inputDateFormat = DateFormat('dd/MM/yyyy');
@@ -30,9 +27,9 @@ class AppDateFormatter {
   // DISPLAY FORMATTERS
   // ===========================================================================
 
-  /// Formats a DateTime as "10 September 2026"
+  /// Formats a DateTime as "20 September 2026" (§2.2 [FIX-DATEFORMAT-1])
   static String formatDate(DateTime date) {
-    return _displayDateFormat.format(date);
+    return pure_date.formatDate(date);
   }
 
   /// Formats a DateTime as "10 September 2026, 02:30 PM"
@@ -40,17 +37,17 @@ class AppDateFormatter {
     return _displayDateTimeFormat.format(dateTime);
   }
 
-  /// Formats a DateTime as "September 2026"
+  /// Formats a DateTime as "September 2026" (§2.2 [FIX-DATEFORMAT-1])
   static String formatMonthYear(DateTime date) {
-    return _monthYearFormat.format(date);
+    return pure_date.formatMonthYear(date);
   }
 
-  /// Formats an ISO string as "10 September 2026"
+  /// Formats an ISO string as "20 September 2026"
   static String formatDateString(String? isoString, {String fallback = '—'}) {
     if (isoString == null || isoString.trim().isEmpty) return fallback;
     try {
       final parsed = DateTime.parse(isoString);
-      return _displayDateFormat.format(parsed);
+      return pure_date.formatDate(parsed);
     } catch (_) {
       return fallback;
     }
@@ -114,8 +111,6 @@ class AppDateFormatter {
 }
 
 // Convenience top-level accessors
-String formatDate(DateTime date) => AppDateFormatter.formatDate(date);
-String formatDateTime(DateTime dateTime) => AppDateFormatter.formatDateTime(dateTime);
 String formatPdfTimestamp(DateTime dateTime) => AppDateFormatter.formatPdfTimestamp(dateTime);
 String formatDateString(String? isoString, {String fallback = '—'}) =>
     AppDateFormatter.formatDateString(isoString, fallback: fallback);

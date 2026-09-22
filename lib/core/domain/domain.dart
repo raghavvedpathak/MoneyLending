@@ -24,3 +24,5 @@ export '../../domain/repositories/customer_repository.dart';
 export '../../domain/repositories/record_repository.dart';
 export 'repository/item_rate_repository.dart';
 export 'repository/settings_repository.dart';
+export 'util/date_format.dart';
+export 'util/money.dart';
