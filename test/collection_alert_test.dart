@@ -756,12 +756,16 @@ class _FakeRecordRepo implements RecordRepository {
   @override
   Future<void> importRecordsTransactionally(List<LedgerRecord> records) => throw UnimplementedError();
   @override
+  Future<void> deletePayment(String paymentId) async {}
+  @override
   Future<void> restoreBackupTransactionally({
     required List<Map<String, dynamic>> customers,
     required List<Map<String, dynamic>> records,
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
     List<Map<String, dynamic>> retiredIds = const [],
+    Map<String, dynamic>? settings,
+    List<Map<String, dynamic>>? itemRates,
   }) => throw UnimplementedError();
   @override
   Future<LedgerRecord> insertRecord(LedgerRecord record) => throw UnimplementedError();
@@ -784,6 +788,9 @@ class _FakeRateRepo implements ItemRateRepository {
 
   @override
   Stream<ItemRate?> watchCurrentRate(String category) => throw UnimplementedError();
+
+  @override
+  Future<ItemRate?> getRateAsOf(String category, DateTime date) => throw UnimplementedError();
 
   @override
   Stream<List<ItemRate>> watchRatesForDate(DateTime date) => throw UnimplementedError();

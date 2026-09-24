@@ -79,12 +79,17 @@ class MockRecordRepository implements RecordRepository {
   Future<void> importRecordsTransactionally(List<LedgerRecord> records) async {}
 
   @override
+  Future<void> deletePayment(String paymentId) async {}
+
+  @override
   Future<void> restoreBackupTransactionally({
     required List<Map<String, dynamic>> customers,
     required List<Map<String, dynamic>> records,
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
     List<Map<String, dynamic>> retiredIds = const [],
+    Map<String, dynamic>? settings,
+    List<Map<String, dynamic>>? itemRates,
   }) async {}
 }
 
@@ -117,6 +122,19 @@ class MockItemRateRepository implements ItemRateRepository {
   @override
   Future<ItemRate?> getCurrentRateOnce(String category) async =>
       rates.where((r) => r.itemCategory == category).firstOrNull;
+
+  @override
+  Future<ItemRate?> getRateAsOf(String category, DateTime date) async {
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    final matching = rates.where((r) {
+      final rDate = DateTime(r.effectiveDate.year, r.effectiveDate.month, r.effectiveDate.day);
+      return r.itemCategory == category &&
+          !rDate.isAfter(dateOnly) &&
+          r.ratePerUnit > 0;
+    }).toList()
+      ..sort((a, b) => b.effectiveDate.compareTo(a.effectiveDate));
+    return matching.firstOrNull;
+  }
 
   @override
   Stream<List<ItemRate>> watchRatesForDate(DateTime date) => _ratesCtrl.stream;

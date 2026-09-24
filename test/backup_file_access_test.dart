@@ -354,6 +354,60 @@ void main() {
         expect(goldRate!.ratePerUnit, equals(7500.0));
       });
 
+      test('Restores backup and replaces settings and itemRates when present [FIX-BACKUP-CONFIG-1]', () async {
+        // 1. Initial settings and rates
+        await settingsRepo.updateSettings(
+          const Settings(
+            name: 'Initial Shop',
+            phone: '1111111111',
+            address: 'Initial Address',
+            defaultInterestRate: 2.0,
+          ),
+        );
+        await itemRateRepo.upsertRate(
+          ItemRate(
+            id: 'rate-1',
+            itemCategory: 'GOLD',
+            ratePerUnit: 6000.0,
+            effectiveDate: DateTime(2026, 9, 1),
+            updatedAt: DateTime(2026, 9, 1),
+          ),
+        );
+
+        // 2. Backup wrapper with new settings and new item rates
+        const backupWrapper = BackupWrapper(
+          version: '1.4',
+          customers: [],
+          records: [],
+          settings: BackupSettings(
+            name: 'Restored Shop Name',
+            phone: '8888888888',
+            address: 'Restored Address',
+            defaultInterestRate: 3.0,
+          ),
+          itemRates: [
+            BackupItemRate(
+              id: 'restored-rate-1',
+              itemCategory: 'GOLD',
+              ratePerUnit: 7200.0,
+              effectiveDate: '2026-09-20',
+              updatedAt: '2026-09-20T10:00:00',
+            ),
+          ],
+        );
+
+        await backupService.restoreBackup(backupWrapper);
+
+        final settings = await settingsRepo.getSettingsOnce();
+        expect(settings.name, equals('Restored Shop Name'));
+        expect(settings.phone, equals('8888888888'));
+        expect(settings.defaultInterestRate, equals(3.0));
+
+        final goldRate = await itemRateRepo.getCurrentRateOnce('GOLD');
+        expect(goldRate, isNotNull);
+        expect(goldRate!.ratePerUnit, equals(7200.0));
+      });
+
       test('Rolls back full import on failure, leaving previous data 100% intact', () async {
         // 1. Seed existing data
         final existingCust = await customerRepo.insertCustomer(

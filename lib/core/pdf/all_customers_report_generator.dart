@@ -5,6 +5,7 @@ import '../../domain/domain.dart';
 import '../calculations/calculation_engine.dart';
 import '../calculations/util/date_extensions.dart';
 import '../utils/app_date_formatter.dart';
+import 'pdf_fonts.dart';
 
 /// Aggregated Financial Report for all customers (§5.1, §5.5, §6.1 & [FIX-ARCH-PDFTEST-1]).
 ///
@@ -26,6 +27,7 @@ class AllCustomersReport {
   final double totalDue;
   final int totalActiveRecords;
   final DateTime generatedDate;
+  final PdfFonts? fonts;
 
   const AllCustomersReport({
     required this.customerReports,
@@ -36,11 +38,13 @@ class AllCustomersReport {
     required this.totalDue,
     required this.totalActiveRecords,
     required this.generatedDate,
+    this.fonts,
   });
 
   /// Builds the [pw.Document] widget tree for all customers report (§6.1).
-  pw.Document buildDocument() {
-    final pdf = pw.Document();
+  pw.Document buildDocument([PdfFonts? overrideFonts]) {
+    final effectiveFonts = overrideFonts ?? fonts;
+    final pdf = pw.Document(theme: effectiveFonts?.toTheme());
 
     // Prepare table data rows with Overdue Flag
     final tableData = <List<String>>[];
@@ -191,7 +195,7 @@ class AllCustomersReport {
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Text(
-                  'Total Customers: ${customerReports.length} | Total Active Records: $totalActiveRecords | Generated: ${AppDateFormatter.formatDateTime(generatedDate)}',
+                  'Total Customers: ${customerReports.length} | Total Active Records: $totalActiveRecords | Generated: ${AppDateFormatter.formatDate(generatedDate)}',
                   style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
                 ),
                 pw.Text(
@@ -210,8 +214,8 @@ class AllCustomersReport {
 
   /// Generates the offline PDF document bytes using pure Dart / package:pdf.
   /// Fully independent of platform channels and 100% testable on JVM/VM.
-  Future<Uint8List> buildPdf() async {
-    return buildDocument().save();
+  Future<Uint8List> buildPdf([PdfFonts? overrideFonts]) async {
+    return buildDocument(overrideFonts).save();
   }
 
   static pw.Widget _buildMetricItem(String label, String value) {
@@ -239,19 +243,29 @@ class AllCustomersReport {
 AllCustomersReport generateAllCustomersReport(
   List<Customer> customers,
   List<LedgerRecord> records, [
-  Object? businessInfoOrDate,
-  DateTime? today,
-  Map<String, DateTime?>? latestPaymentDates,
+  Object? arg3,
+  Object? arg4,
+  Object? arg5,
+  Object? arg6,
 ]) {
-  final BusinessInfo businessInfo = businessInfoOrDate is BusinessInfo
-      ? businessInfoOrDate
-      : const BusinessInfo();
+  BusinessInfo businessInfo = const BusinessInfo();
+  DateTime? today;
+  PdfFonts? resolvedFonts;
+  Map<String, DateTime?>? latestPaymentDates;
 
-  final DateTime? effectiveToday = businessInfoOrDate is DateTime
-      ? businessInfoOrDate
-      : today;
+  for (final arg in [arg3, arg4, arg5, arg6]) {
+    if (arg is BusinessInfo) {
+      businessInfo = arg;
+    } else if (arg is DateTime) {
+      today = arg;
+    } else if (arg is PdfFonts) {
+      resolvedFonts = arg;
+    } else if (arg is Map<String, DateTime?>) {
+      latestPaymentDates = arg;
+    }
+  }
 
-  final now = effectiveToday ?? DateTime.now();
+  final now = today ?? DateTime.now();
   final todayDate = DateTime(now.year, now.month, now.day);
   final customerReports = CalculationEngine.getCustomerReport(customers, records, today: todayDate);
 
@@ -308,5 +322,35 @@ AllCustomersReport generateAllCustomersReport(
     totalDue: totalDue,
     totalActiveRecords: totalActiveRecords,
     generatedDate: now,
+    fonts: resolvedFonts,
   );
+}
+
+/// Data payload for background isolate All Customers PDF generation ([FIX-PDFBGTHREAD-1] & §6.3).
+class AllCustomersJob {
+  final List<Customer> customers;
+  final List<LedgerRecord> records;
+  final BusinessInfo businessInfo;
+  final PdfFonts? fonts;
+  final DateTime? today;
+
+  const AllCustomersJob(
+    this.customers,
+    this.records,
+    this.businessInfo, [
+    this.fonts,
+    this.today,
+  ]);
+}
+
+/// Pure top-level worker function executed on a background isolate via [compute] ([FIX-PDFBGTHREAD-1] & §6.3).
+Future<Uint8List> buildAllCustomersBytes(AllCustomersJob job) async {
+  final report = generateAllCustomersReport(
+    job.customers,
+    job.records,
+    job.businessInfo,
+    job.fonts,
+    job.today,
+  );
+  return report.buildPdf(job.fonts);
 }

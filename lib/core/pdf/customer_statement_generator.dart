@@ -4,6 +4,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../../domain/domain.dart';
 import '../calculations/calculation_engine.dart';
 import '../utils/app_date_formatter.dart';
+import 'pdf_fonts.dart';
 
 /// Customer Statement report model (§6.1 & §6.2).
 ///
@@ -25,6 +26,7 @@ class CustomerStatementReport {
   final double totalDue;
   final int activeRecordCount;
   final int settledRecordCount;
+  final PdfFonts? fonts;
 
   const CustomerStatementReport({
     required this.customer,
@@ -37,11 +39,13 @@ class CustomerStatementReport {
     required this.totalDue,
     required this.activeRecordCount,
     required this.settledRecordCount,
+    this.fonts,
   });
 
   /// Builds the [pw.Document] widget tree for this customer statement (§6.1, §6.2).
-  pw.Document buildDocument() {
-    final pdf = pw.Document();
+  pw.Document buildDocument([PdfFonts? overrideFonts]) {
+    final effectiveFonts = overrideFonts ?? fonts;
+    final pdf = pw.Document(theme: effectiveFonts?.toTheme());
     final targetDate = DateTime(generatedDate.year, generatedDate.month, generatedDate.day);
 
     final activeRecords = records.where((r) => r.isActive).toList();
@@ -229,7 +233,7 @@ class CustomerStatementReport {
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Text(
-                  'Customer Statement - Generated: ${AppDateFormatter.formatDateTime(generatedDate)}',
+                  'Customer Statement - Generated: ${AppDateFormatter.formatDate(generatedDate)}',
                   style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
                 ),
                 pw.Text(
@@ -247,8 +251,8 @@ class CustomerStatementReport {
   }
 
   /// Generates the offline PDF document bytes for this customer statement.
-  Future<Uint8List> buildPdf() async {
-    return buildDocument().save();
+  Future<Uint8List> buildPdf([PdfFonts? overrideFonts]) async {
+    return buildDocument(overrideFonts).save();
   }
 
   /// Builds a dedicated record section displaying:
@@ -311,7 +315,9 @@ class CustomerStatementReport {
                   ],
                 ),
                 pw.Text(
-                  '${record.isGiven ? "Given At" : "Taken At"}: ${AppDateFormatter.formatPdfTimestamp(record.startDate)}',
+                  '${record.isGiven ? "Given" : "Taken"}: ${AppDateFormatter.formatDate(record.startDate)}'
+                  '${record.endDate != null ? " | Due: ${AppDateFormatter.formatDate(record.endDate!)}" : ""}'
+                  '${record.settledDate != null ? " | Settled: ${AppDateFormatter.formatDate(record.settledDate!)}" : ""}',
                   style: pw.TextStyle(
                     color: PdfColors.white,
                     fontWeight: pw.FontWeight.bold,
@@ -353,8 +359,8 @@ class CustomerStatementReport {
 
                 pw.SizedBox(height: 6),
 
-                // Payment history per record (§6.2 & [FIX-TIMESTAMP-PDF-1])
-                // datetime (“dd/MM/yyyy, HH:mm”), payment ID (e.g. PAY092601), amount, interest portion, principal portion
+                // Payment history per record (§6.2 & [FIX-TIMESTAMP-PDF-1] revised v1.15)
+                // payment date (formatDate(), e.g. "5 August 2026"), payment ID (e.g. PAY092601), amount, interest, principal
                 if (record.payments.isNotEmpty) ...[
                   pw.Text(
                     'Payment History for ${record.transactionId}:',
@@ -362,11 +368,11 @@ class CustomerStatementReport {
                   ),
                   pw.SizedBox(height: 3),
                   pw.TableHelper.fromTextArray(
-                    headers: ['Date & Time', 'Payment ID', 'Amount Paid', 'Interest Portion', 'Principal Portion', 'Notes'],
+                    headers: ['Payment Date', 'Payment ID', 'Amount Paid', 'Interest Portion', 'Principal Portion', 'Notes'],
                     data: record.payments.map((p) {
                       final paymentDisplayId = p.paymentId.isNotEmpty ? p.paymentId : (p.id.isNotEmpty ? p.id : '-');
                       return [
-                        AppDateFormatter.formatPdfTimestamp(p.date),
+                        AppDateFormatter.formatDate(p.date),
                         paymentDisplayId,
                         'Rs. ${p.amount.toStringAsFixed(2)}',
                         'Rs. ${p.interestPaid.toStringAsFixed(2)}',
@@ -425,8 +431,20 @@ CustomerStatementReport generateCustomerStatement(
   Customer customer,
   List<LedgerRecord> records, [
   BusinessInfo businessInfo = const BusinessInfo(),
-  DateTime? today,
+  Object? arg4,
+  Object? arg5,
 ]) {
+  DateTime? today;
+  PdfFonts? resolvedFonts;
+
+  for (final arg in [arg4, arg5]) {
+    if (arg is DateTime) {
+      today = arg;
+    } else if (arg is PdfFonts) {
+      resolvedFonts = arg;
+    }
+  }
+
   final now = today ?? DateTime.now();
   final targetDate = DateTime(now.year, now.month, now.day);
 
@@ -462,5 +480,35 @@ CustomerStatementReport generateCustomerStatement(
     totalDue: totalDue,
     activeRecordCount: activeCount,
     settledRecordCount: settledCount,
+    fonts: resolvedFonts,
   );
+}
+
+/// Data payload for background isolate PDF generation ([FIX-PDFBGTHREAD-1] & §6.3).
+class StatementJob {
+  final Customer customer;
+  final List<LedgerRecord> records;
+  final BusinessInfo businessInfo;
+  final PdfFonts? fonts;
+  final DateTime? today;
+
+  const StatementJob(
+    this.customer,
+    this.records,
+    this.businessInfo, [
+    this.fonts,
+    this.today,
+  ]);
+}
+
+/// Pure top-level worker function executed on a background isolate via [compute] ([FIX-PDFBGTHREAD-1] & §6.3).
+Future<Uint8List> buildStatementBytes(StatementJob job) async {
+  final statement = generateCustomerStatement(
+    job.customer,
+    job.records,
+    job.businessInfo,
+    job.fonts,
+    job.today,
+  );
+  return statement.buildPdf(job.fonts);
 }

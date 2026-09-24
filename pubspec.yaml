@@ -50,7 +50,6 @@ dependencies:
   android_alarm_manager_plus: ^5.1.1
   flutter_local_notifications: ^22.3.1
   shared_preferences: ^2.5.5
-  workmanager: ^0.10.10
   drift: ^2.34.4
   sqlite3_flutter_libs: ^0.6.0+eol
   uuid: ^4.6.0
@@ -90,6 +89,8 @@ flutter:
 
   assets:
     - assets/icon/
+    - assets/fonts/NotoSans-Regular.ttf # [FIX-PDF-FONT-1] read with rootBundle on the UI isolate
+    - assets/fonts/NotoSans-Bold.ttf # passed to the PDF isolate as bytes
 
 
   # An image asset can refer to one or more resolution-specific "variants", see

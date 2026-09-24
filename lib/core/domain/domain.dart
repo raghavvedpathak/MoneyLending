@@ -19,9 +19,10 @@ export '../../domain/models/record_payment_total.dart';
 export '../../domain/models/record_status.dart';
 export '../../domain/models/record_type.dart';
 export '../../domain/models/settings.dart';
+export 'models/profit_state.dart';
 
-export '../../domain/repositories/customer_repository.dart';
-export '../../domain/repositories/record_repository.dart';
+export 'repository/customer_repository.dart';
+export 'repository/record_repository.dart';
 export 'repository/item_rate_repository.dart';
 export 'repository/settings_repository.dart';
 export 'util/date_format.dart';

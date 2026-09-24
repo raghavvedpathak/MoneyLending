@@ -19,21 +19,54 @@ double? usableRate(List<ItemRate> rates, String category) {
   return null;
 }
 
+/// [FIX-SORT-1] (Addendum J.9) Compares transaction IDs by their numeric sequence
+/// rather than lexicographical text so that "TRAN092699" sorts before "TRAN0926100"
+/// and "TXN-005" sorts before "TXN-010".
+int compareTransactionSequence(String a, String b) {
+  // If transaction IDs follow the canonical TRAN<MM><YY><SEQ> pattern (>= 9 chars)
+  if (a.startsWith('TRAN') && b.startsWith('TRAN') && a.length >= 9 && b.length >= 9) {
+    final prefixA = a.substring(0, 8); // "TRANMMYY"
+    final prefixB = b.substring(0, 8);
+    if (prefixA == prefixB) {
+      final seqA = int.tryParse(a.substring(8));
+      final seqB = int.tryParse(b.substring(8));
+      if (seqA != null && seqB != null) {
+        return seqA.compareTo(seqB);
+      }
+    }
+  }
+
+  // General format: compare prefix and trailing integer sequence (e.g. TXN-005 vs TXN-010)
+  final matchA = RegExp(r'^(.*?)(\d+)$').firstMatch(a);
+  final matchB = RegExp(r'^(.*?)(\d+)$').firstMatch(b);
+  if (matchA != null && matchB != null) {
+    final prefixA = matchA.group(1);
+    final prefixB = matchB.group(1);
+    if (prefixA == prefixB) {
+      final numA = int.tryParse(matchA.group(2)!);
+      final numB = int.tryParse(matchB.group(2)!);
+      if (numA != null && numB != null) {
+        return numA.compareTo(numB);
+      }
+    }
+  }
+
+  return a.compareTo(b);
+}
+
 /// computeRecordRisks() — the single pure function behind the Dashboard card, the Risk
 /// Summary and the daily overshoot notification (§5.3 & [FIX-RISK-VIEWMODEL-1]).
 ///
 /// [FIX-CLOCK-1] `today` is injected (already .dateOnly) — the function never reads the clock.
-/// [FIX-COLLALERT-TOTALPAID-1] [totalPaidMap] defaults to const {} as a test safety net.
+/// [FIX-REMOVE-TOTALPAID-1] (v1.16) Every record is FULL ([FIX-PERF-EAGERLOAD-2]),
+/// so projectedOutstanding reads calculateRecordFinancials(record, projectionDate).totalDue.
+/// Optional [totalPaidMap] is retained for backward compatibility with isolated unit tests.
 List<RecordRisk> computeRecordRisks({
   required List<LedgerRecord> records, // ACTIVE GIVEN records, FULL ([FIX-PERF-EAGERLOAD-2])
   required List<ItemRate> rates,
   required DateTime today,
-  Map<String, double> totalPaidMap = const {},
+  Map<String, double>? totalPaidMap,
 }) {
-  // IMPORTANT: totalPaid is always sourced from the totalPaidMap parameter.
-  // Do NOT sum record.payments directly here — it would bypass the precomputed
-  // aggregates and break the background-task path (which passes a pre-fetched
-  // map).
   final todayDate = today.dateOnly;
   final projectedTarget = addMonths(todayDate, 2);
 
@@ -50,20 +83,21 @@ List<RecordRisk> computeRecordRisks({
     final missingRateCategories = <String>{};
 
     if (record.items.isNotEmpty) {
-      double totalCurrentCollateralValue = 0.0;
+      final itemMarketValues = <double>[];
       for (final item in record.items) {
         final rate = usableRate(rates, item.itemCategory);
         if (rate == null) {
           missingRateCategories.add(item.itemCategory);
         } else {
-          totalCurrentCollateralValue += item.fineWeight * rate;
+          // [FIX-MONEY-1] liveItemValue(item, rate) = roundMoney(item.weight * (item.purity / 100) * rate)
+          itemMarketValues.add(liveItemValue(item, rate));
         }
       }
 
       // [FIX-RATE-USABLE-1] If any item's category has no usable rate,
       // currentCollateralValue is null — NOT a partial sum.
       if (missingRateCategories.isEmpty) {
-        currentCollateralValue = totalCurrentCollateralValue;
+        currentCollateralValue = sumMoney(itemMarketValues);
       } else {
         currentCollateralValue = null;
       }
@@ -75,24 +109,29 @@ List<RecordRisk> computeRecordRisks({
     final financials = calculateRecordFinancials(record, todayDate);
     final totalDue = financials.totalDue;
 
-    final itemValueAtLending = record.items.fold<double>(
-      0.0,
-      (s, i) => s + (i.itemValue > 0 ? i.itemValue : calculateItemValue(i)),
+    final itemValueAtLending = sumMoney(
+      record.items.map((i) => i.itemValue > 0 ? i.itemValue : calculateItemValue(i)),
     );
 
-    // Projected outstanding at today + 2 months (accrual stops at endDate via accrualEndDate)
-    final effectiveProjectedTarget = accrualEndDate(record, projectedTarget);
-    final projectedInterest = calculateInterestForPeriod(
-      principal: record.principalAmount,
-      rate: record.interestRate,
-      start: record.startDate.dateOnly,
-      end: effectiveProjectedTarget,
-    );
-
-    final totalPaid = totalPaidMap[record.id] ?? 0.0;
-
-    final projectedOutstanding =
-        math.max(0.0, record.principalAmount + projectedInterest - totalPaid);
+    // [FIX-REMOVE-TOTALPAID-1] (v1.16)
+    // If totalPaidMap is supplied (e.g. legacy/isolated unit test), use it.
+    // Otherwise, calculateRecordFinancials(record, projectedTarget).totalDue is the single source of truth.
+    final double projectedOutstanding;
+    if (totalPaidMap != null) {
+      final effectiveProjectedTarget = accrualEndDate(record, projectedTarget);
+      final projectedInterest = calculateInterestForPeriod(
+        principal: record.principalAmount,
+        rate: record.interestRate,
+        start: record.startDate.dateOnly,
+        end: effectiveProjectedTarget,
+      );
+      final totalPaid = totalPaidMap[record.id] ?? 0.0;
+      projectedOutstanding = roundMoney(
+        math.max(0.0, record.principalAmount + projectedInterest - totalPaid),
+      );
+    } else {
+      projectedOutstanding = calculateRecordFinancials(record, projectedTarget).totalDue;
+    }
 
     final risk = RecordRisk(
       record: record,
@@ -103,7 +142,7 @@ List<RecordRisk> computeRecordRisks({
       itemValueAtLending: itemValueAtLending,
     );
 
-    // Authoritative 5-group classification:
+    // Authoritative 5-group classification (§5.3):
     if (risk.overshoot && risk.collateralDrop) {
       // Group 1: Both OvershootWarning and CollateralDrop triggered simultaneously
       final dropGap = totalDue - currentCollateralValue!;
@@ -122,7 +161,7 @@ List<RecordRisk> computeRecordRisks({
       // Group 4: Records with missing rates (informational)
       group4.add(risk);
     } else {
-      // Group 5: Safe records (ordered by transactionId)
+      // Group 5: Safe records (ordered by startDate ascending, then transaction sequence)
       group5.add(risk);
     }
   }
@@ -136,8 +175,12 @@ List<RecordRisk> computeRecordRisks({
   // (3) Sort Group 3 by drop gap descending
   group3.sort((a, b) => b.gap.compareTo(a.gap));
 
-  // (5) Sort Group 5 by transactionId
-  group5.sort((a, b) => a.record.transactionId.compareTo(b.record.transactionId));
+  // (5) Sort Group 5: oldest first (startDate ascending), then numeric sequence ([FIX-SORT-1], Addendum J.9)
+  group5.sort((a, b) {
+    final dateCmp = a.record.startDate.compareTo(b.record.startDate);
+    if (dateCmp != 0) return dateCmp;
+    return compareTransactionSequence(a.record.transactionId, b.record.transactionId);
+  });
 
   return [
     ...group1.map((e) => e.risk),
@@ -176,7 +219,7 @@ List<CollectionAlert> computeCollectionAlerts({
   required List<LedgerRecord> records,
   required List<ItemRate> rates,
   required DateTime today,
-  Map<String, double> totalPaidMap = const {},
+  Map<String, double>? totalPaidMap,
 }) =>
     alertsFromRisks(computeRecordRisks(
       records: records,

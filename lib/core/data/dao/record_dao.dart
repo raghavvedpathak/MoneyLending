@@ -217,11 +217,13 @@ class RecordDao {
     _recordChanges.add(null);
   }
 
-  /// Transactional all-or-nothing backup restore [FIX-ID-BACKUP-1]:
+  /// Transactional all-or-nothing backup restore [FIX-ID-BACKUP-1] & [FIX-BACKUPCONFIG-1]:
   /// Restoring a JSON backup is a replace-all, not a merge. Inside a single db.transaction(),
   /// delete payments, ledger_items, records, customers, and retired_ids explicitly
   /// (child tables first — do not lean on the FK cascade), then insert everything from the backup.
-  /// settings and item_rates are not part of the backup and are never touched.
+  /// settings and item_rates are part of the 1.4 backup ([FIX-BACKUPCONFIG-1]): when the file
+  /// carries them they are replaced too (settings row overwritten, item_rates deleted and re-inserted);
+  /// when it does not (1.1–1.3), they are left untouched.
   /// If anything fails, roll the whole transaction back so the device keeps its previous
   /// data, and surface a clear error.
   Future<void> restoreBackupTransactionally({
@@ -230,6 +232,8 @@ class RecordDao {
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
     List<Map<String, dynamic>> retiredIds = const [],
+    Map<String, dynamic>? settings,
+    List<Map<String, dynamic>>? itemRates,
   }) async {
     final executor = _db;
     if (executor is Database) {
@@ -240,6 +244,16 @@ class RecordDao {
         await txn.delete('records');
         await txn.delete('customers');
         await txn.delete('retired_ids');
+
+        if (settings != null) {
+          await txn.insert('settings', settings, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        if (itemRates != null) {
+          await txn.delete('item_rates');
+          for (final r in itemRates) {
+            await txn.insert('item_rates', r, conflictAlgorithm: ConflictAlgorithm.abort);
+          }
+        }
 
         for (final c in customers) {
           await txn.insert('customers', c, conflictAlgorithm: ConflictAlgorithm.abort);
@@ -263,6 +277,16 @@ class RecordDao {
       await executor.delete('records');
       await executor.delete('customers');
       await executor.delete('retired_ids');
+
+      if (settings != null) {
+        await executor.insert('settings', settings, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      if (itemRates != null) {
+        await executor.delete('item_rates');
+        for (final r in itemRates) {
+          await executor.insert('item_rates', r, conflictAlgorithm: ConflictAlgorithm.abort);
+        }
+      }
 
       for (final c in customers) {
         await executor.insert('customers', c, conflictAlgorithm: ConflictAlgorithm.abort);

@@ -1,4 +1,7 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_lending/core/data/di/database_provider.dart';
+import 'package:money_lending/core/data/di/repository_providers.dart';
 import 'package:money_lending/data/data.dart';
 import 'package:money_lending/domain/domain.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -176,6 +179,68 @@ void main() {
       final updatedSettings = await settingsRepo.watchSettings().first;
       expect(updatedSettings.name, 'New Name');
       expect(updatedSettings.defaultInterestRate, 3.5);
+    });
+
+    test('SettingsRepository watchSettings pushes live updates to multiple concurrent subscribers without screen reload', () async {
+      final emissionsA = <Settings>[];
+      final emissionsB = <Settings>[];
+
+      final subA = settingsRepo.watchSettings().listen(emissionsA.add);
+      final subB = settingsRepo.watchSettings().listen(emissionsB.add);
+
+      // Wait for initial default emission
+      await Future.delayed(const Duration(milliseconds: 50));
+      expect(emissionsA.isNotEmpty, isTrue);
+      expect(emissionsB.isNotEmpty, isTrue);
+      expect(emissionsA.first.defaultInterestRate, 2.0);
+      expect(emissionsB.first.defaultInterestRate, 2.0);
+
+      // Update in Settings screen
+      await settingsRepo.updateSettings(const Settings(
+        id: 1,
+        name: 'Shared Shop',
+        phone: '1234567890',
+        address: 'Market Yard',
+        defaultInterestRate: 4.0,
+      ));
+
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(emissionsA.last.defaultInterestRate, 4.0);
+      expect(emissionsB.last.defaultInterestRate, 4.0);
+
+      await subA.cancel();
+      await subB.cancel();
+    });
+
+    test('settingsStreamProvider emits updated settings reactively via Riverpod container [FIX-ARCH-SETTINGS-1]', () async {
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWithValue(dbHelper),
+          settingsRepositoryProvider.overrideWithValue(settingsRepo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final subscription = container.listen(settingsStreamProvider, (_, __) {});
+      addTearDown(subscription.close);
+
+      final initial = await container.read(settingsStreamProvider.future);
+      expect(initial.defaultInterestRate, 2.0);
+
+      // Update settings
+      await container.read(settingsRepositoryProvider).updateSettings(
+        const Settings(
+          id: 1,
+          name: 'Riverpod Shop',
+          phone: '999',
+          address: 'Main Rd',
+          defaultInterestRate: 2.75,
+        ),
+      );
+
+      final updated = await container.read(settingsRepositoryProvider).watchSettings().first;
+      expect(updated.defaultInterestRate, 2.75);
     });
   });
 }

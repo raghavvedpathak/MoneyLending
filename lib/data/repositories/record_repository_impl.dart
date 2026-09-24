@@ -108,6 +108,7 @@ class RecordRepositoryImpl implements RecordRepository {
         itemValue: i.itemValue ?? 0.0,
         lendPercentage: i.lendPercentage ?? 0.0,
         lendableAmount: i.lendableAmount ?? 0.0,
+        sourceItemId: i.sourceItemId,
       )).toList(),
       payments: payments.map((p) => Payment(
         id: p.id,
@@ -117,6 +118,7 @@ class RecordRepositoryImpl implements RecordRepository {
         notes: p.notes,
         interestPaid: p.interestPaid,
         principalPaid: p.principalPaid,
+        paymentId: p.paymentId,
       )).toList(),
     );
   }
@@ -212,6 +214,7 @@ class RecordRepositoryImpl implements RecordRepository {
       itemValue: item.itemValue,
       lendPercentage: item.lendPercentage,
       lendableAmount: item.lendableAmount,
+      sourceItemId: item.sourceItemId,
     )).toList();
 
     final paymentEntities = record.payments.map((p) => PaymentEntity(
@@ -222,6 +225,7 @@ class RecordRepositoryImpl implements RecordRepository {
       notes: p.notes,
       interestPaid: p.interestPaid,
       principalPaid: p.principalPaid,
+      paymentId: p.paymentId,
     )).toList();
 
     // Multi-table write inside a single atomic SQLite transaction (§4.4)
@@ -250,6 +254,7 @@ class RecordRepositoryImpl implements RecordRepository {
       itemValue: item.itemValue,
       lendPercentage: item.lendPercentage,
       lendableAmount: item.lendableAmount,
+      sourceItemId: item.sourceItemId,
     )).toList();
 
     await _dbHelper.updateRecordWithDetails(
@@ -299,8 +304,15 @@ class RecordRepositoryImpl implements RecordRepository {
       notes: payment.notes,
       interestPaid: payment.interestPaid,
       principalPaid: payment.principalPaid,
+      paymentId: payment.paymentId,
     );
     await _dbHelper.insertPayment(entity);
+    await _refreshStreams();
+  }
+
+  @override
+  Future<void> deletePayment(String paymentId) async {
+    await _dbHelper.deletePayment(paymentId);
     await _refreshStreams();
   }
 
@@ -407,6 +419,8 @@ class RecordRepositoryImpl implements RecordRepository {
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
     List<Map<String, dynamic>> retiredIds = const [],
+    Map<String, dynamic>? settings,
+    List<Map<String, dynamic>>? itemRates,
   }) async {
     await _dbHelper.restoreBackupTransactionally(
       customers: customers,
@@ -414,6 +428,8 @@ class RecordRepositoryImpl implements RecordRepository {
       ledgerItems: ledgerItems,
       payments: payments,
       retiredIds: retiredIds,
+      settings: settings,
+      itemRates: itemRates,
     );
     await _refreshStreams();
   }

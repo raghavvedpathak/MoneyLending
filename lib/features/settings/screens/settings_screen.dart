@@ -28,6 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isSaving = false;
   bool _isExporting = false;
   bool _isRestoring = false;
+  bool _isClearing = false;
 
   @override
   void initState() {
@@ -42,7 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (mounted) {
       setState(() {
-        _shopNameController.text = settings.name.isEmpty ? 'My Lending Firm' : settings.name;
+        _shopNameController.text = settings.name;
         _phoneController.text = settings.phone;
         _addressController.text = settings.address;
         _defaultRateController.text = settings.defaultInterestRate.toStringAsFixed(1);
@@ -74,10 +75,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isSaving = true);
     try {
       final current = await _settingsRepository.getSettingsOnce();
-      final updated = current.copyWith(
-        name: _shopNameController.text.trim().isEmpty ? null : _shopNameController.text.trim(),
-        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-        address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
+      final updated = Settings(
+        id: current.id,
+        name: _shopNameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        address: _addressController.text.trim(),
         defaultInterestRate: double.tryParse(_defaultRateController.text.trim()) ?? 2.0,
       );
 
@@ -236,6 +238,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _clearAllData() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AppTheme.rose),
+            SizedBox(width: 8),
+            Text('Clear All Data?'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This action will permanently delete all customers, loans, transactions, items, and payments from this device.',
+              style: TextStyle(height: 1.4),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'It also completely empties retired IDs, meaning every ID sequence (Customer, Transaction, and Payment) will restart at 01.',
+              style: TextStyle(height: 1.4, color: AppTheme.textSecondary),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'This action cannot be undone. Are you sure you want to proceed?',
+              style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.rose),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            key: const Key('settings_confirm_clear_button'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.rose,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Clear Everything'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isClearing = true);
+    try {
+      final backupService = sl<BackupService>();
+      await backupService.clearAllData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          AppTheme.successSnackBar(
+            'All data cleared successfully. ID sequences reset to 01.',
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          AppTheme.errorSnackBar('Error clearing data: $e'),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isClearing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -266,17 +341,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const SizedBox(height: 16),
                         TextField(
+                          key: const Key('settings_shop_name_field'),
                           controller: _shopNameController,
                           decoration: const InputDecoration(labelText: 'Lending Business / Shop Name'),
                         ),
                         const SizedBox(height: 12),
                         TextField(
+                          key: const Key('settings_phone_field'),
                           controller: _phoneController,
                           keyboardType: TextInputType.phone,
                           decoration: const InputDecoration(labelText: 'Contact Phone Number'),
                         ),
                         const SizedBox(height: 12),
                         TextField(
+                          key: const Key('settings_address_field'),
                           controller: _addressController,
                           decoration: const InputDecoration(labelText: 'Business Address (Shown on PDFs)'),
                         ),
@@ -302,6 +380,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const SizedBox(height: 16),
                         TextField(
+                          key: const Key('settings_default_rate_field'),
                           controller: _defaultRateController,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: const InputDecoration(
@@ -390,6 +469,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
+                                key: const Key('settings_export_button'),
                                 onPressed: _isExporting || _isRestoring ? null : _exportBackup,
                                 icon: _isExporting
                                     ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
@@ -400,6 +480,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: OutlinedButton.icon(
+                                key: const Key('settings_restore_button'),
                                 onPressed: _isExporting || _isRestoring ? null : _importBackup,
                                 icon: _isRestoring
                                     ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
@@ -408,6 +489,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                           ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Danger Zone / Clear All Data (§Tab 4)
+                Card(
+                  color: AppTheme.rose.withValues(alpha: 0.05),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: AppTheme.rose.withValues(alpha: 0.3)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: AppTheme.rose),
+                            SizedBox(width: 8),
+                            Text(
+                              'Danger Zone',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.rose,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Permanently delete all customers, loans, transactions, and payments. Empties retired IDs so all sequences restart at 01.',
+                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            key: const Key('settings_clear_data_button'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.rose,
+                              side: const BorderSide(color: AppTheme.rose),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: _isExporting || _isRestoring || _isClearing ? null : _clearAllData,
+                            icon: _isClearing
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppTheme.rose,
+                                    ),
+                                  )
+                                : const Icon(Icons.delete_forever_rounded),
+                            label: const Text('Clear All Data'),
+                          ),
                         ),
                       ],
                     ),
@@ -441,6 +583,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // Save Button
                 ElevatedButton(
+                  key: const Key('settings_save_button'),
                   onPressed: _isSaving ? null : _saveSettings,
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),

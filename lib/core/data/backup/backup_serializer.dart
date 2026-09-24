@@ -3,9 +3,11 @@ import '../../../domain/domain.dart';
 import 'backup_migration.dart';
 import 'models/backup_customer.dart';
 import 'models/backup_item.dart';
+import 'models/backup_item_rate.dart';
 import 'models/backup_payment.dart';
 import 'models/backup_record.dart';
 import 'models/backup_retired_id.dart';
+import 'models/backup_settings.dart';
 import 'models/backup_wrapper.dart';
 
 /// Exception thrown when encountering an unrecognized backup version string (§7.1).
@@ -126,6 +128,8 @@ class BackupSerializer {
     required List<Customer> customers,
     required List<LedgerRecord> records,
     List<BackupRetiredId> retiredIds = const [],
+    Settings? settings,
+    List<ItemRate>? itemRates,
   }) {
     final backupCustomers = customers.map((c) {
       return BackupCustomer(
@@ -190,10 +194,21 @@ class BackupSerializer {
       );
     }).toList();
 
+    // Export always writes both settings and itemRates per [FIX-BACKUP-CONFIG-1]
+    final backupSettings = settings != null
+        ? BackupSettings.fromDomain(settings)
+        : const BackupSettings();
+
+    final backupItemRates = itemRates != null
+        ? itemRates.map((r) => BackupItemRate.fromDomain(r)).toList()
+        : const <BackupItemRate>[];
+
     return BackupWrapper(
       version: backupVersion,
       customers: backupCustomers,
       records: backupRecords,
+      settings: backupSettings,
+      itemRates: backupItemRates,
       retiredIds: retiredIds,
     );
   }
@@ -203,6 +218,8 @@ class BackupSerializer {
     List<Customer> customers,
     List<LedgerRecord> records,
     List<BackupRetiredId> retiredIds,
+    Settings? settings,
+    List<ItemRate>? itemRates,
   }) toDomain(BackupWrapper wrapper) {
     final customers = wrapper.customers.map((c) {
       return Customer(
@@ -294,6 +311,8 @@ class BackupSerializer {
       customers: customers,
       records: records,
       retiredIds: wrapper.retiredIds,
+      settings: wrapper.settings?.toDomain(),
+      itemRates: wrapper.itemRates?.map((i) => i.toDomain()).toList(),
     );
   }
 }

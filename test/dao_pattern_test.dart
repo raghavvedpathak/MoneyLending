@@ -614,5 +614,168 @@ void main() {
       expect(ItemRateEntityData, ItemRateEntity);
       expect(RetiredIdEntityData, RetiredIdEntity);
     });
+
+    test('PaymentDao.updateSplit rewrites interest/principal split of one payment [FIX-REPLAY-1]', () async {
+      final payment = PaymentEntity(
+        id: 'pay-split-1',
+        recordId: 'rec-1',
+        amount: 2000.0,
+        date: '2026-09-20T10:00:00',
+        interestPaid: 2000.0,
+        principalPaid: 0.0,
+        paymentId: 'PAY092601',
+      );
+      await paymentDao.insertPayment(payment);
+
+      // Replay rewrite: split 2000 into 500 interest, 1500 principal
+      final rowsUpdated = await paymentDao.updateSplit('pay-split-1', 500.0, 1500.0);
+      expect(rowsUpdated, 1);
+
+      final updated = await paymentDao.getById('pay-split-1');
+      expect(updated, isNotNull);
+      expect(updated!.interestPaid, 500.0);
+      expect(updated.principalPaid, 1500.0);
+      expect(updated.amount, 2000.0); // original amount preserved
+    });
+
+    test('PaymentDao.deleteById deletes payment via WHERE-clause [FIX-PAYMENT-DELETE-1]', () async {
+      final payment = PaymentEntity(
+        id: 'pay-del-1',
+        recordId: 'rec-1',
+        amount: 1000.0,
+        date: '2026-09-20T11:00:00',
+        interestPaid: 1000.0,
+        principalPaid: 0.0,
+        paymentId: 'PAY092602',
+      );
+      await paymentDao.insertPayment(payment);
+
+      final count = await paymentDao.deleteById('pay-del-1');
+      expect(count, 1);
+
+      final deleted = await paymentDao.getById('pay-del-1');
+      expect(deleted, isNull);
+    });
+
+    test('RecordRepositoryImpl.deletePayment deletes payment and refreshes streams', () async {
+      final repo = RecordRepositoryImpl(dbHelper);
+      final payment = Payment(
+        id: 'pay-repo-del',
+        recordId: 'rec-1',
+        amount: 500.0,
+        date: DateTime.now(),
+        interestPaid: 500.0,
+        principalPaid: 0.0,
+        paymentId: 'PAY092603',
+      );
+      await repo.addPayment(payment);
+
+      await repo.deletePayment('pay-repo-del');
+      final fetched = await paymentDao.getById('pay-repo-del');
+      expect(fetched, isNull);
+    });
+
+    test('restoreBackupTransactionally replaces settings and item_rates when present in v1.4 backup [FIX-BACKUPCONFIG-1]', () async {
+      // 1. Initial settings and rates
+      await settingsDao.upsertSettings(const SettingsEntity(
+        id: 1,
+        name: 'Old Shop Name',
+        phone: '1111111111',
+        address: 'Old Address',
+        defaultInterestRate: 2.0,
+      ));
+      await db.insert('item_rates', {
+        'itemCategory': 'OLD_CAT',
+        'rate': 1000.0,
+        'updatedAt': '2026-01-01T00:00:00',
+      });
+
+      // 2. v1.4 Backup containing new settings and item_rates
+      final newSettings = {
+        'id': 1,
+        'name': 'New Upgraded Shop',
+        'phone': '9999999999',
+        'address': 'New Address',
+        'defaultInterestRate': 3.0,
+      };
+      final newItemRates = [
+        {
+          'itemCategory': 'GOLD_24K',
+          'rate': 7200.0,
+          'updatedAt': '2026-09-20T12:00:00',
+        },
+        {
+          'itemCategory': 'SILVER',
+          'rate': 85.0,
+          'updatedAt': '2026-09-20T12:00:00',
+        },
+      ];
+
+      await dbHelper.restoreBackupTransactionally(
+        customers: [],
+        records: [],
+        ledgerItems: [],
+        payments: [],
+        settings: newSettings,
+        itemRates: newItemRates,
+      );
+
+      // Settings overwritten
+      final currentSettings = await settingsDao.getSettings();
+      expect(currentSettings.name, 'New Upgraded Shop');
+      expect(currentSettings.defaultInterestRate, 3.0);
+
+      // Old item_rate deleted, new ones inserted
+      final currentRates = await db.query('item_rates', orderBy: 'itemCategory ASC');
+      expect(currentRates.length, 2);
+      expect(currentRates[0]['itemCategory'], 'GOLD_24K');
+      expect(currentRates[0]['rate'], 7200.0);
+      expect(currentRates[1]['itemCategory'], 'SILVER');
+    });
+
+    test('RecordDao.upsert safe existence check preserves child ledger items (anti-cascade-delete)', () async {
+      // 1. Insert initial record with child item
+      final record = RecordEntity(
+        id: 'rec-upsert-safe',
+        transactionId: 'TRAN092699',
+        type: 'GIVEN',
+        customerId: 'c-1',
+        startDate: '2026-09-20T10:00:00',
+        principalAmount: 50000.0,
+        interestRate: 2.0,
+        status: 'ACTIVE',
+      );
+      await recordDao.insert(record);
+      await db.insert('ledger_items', {
+        'id': 'item-child-1',
+        'recordId': 'rec-upsert-safe',
+        'name': 'Gold Ring',
+        'itemCategory': 'GOLD_22K',
+        'weight': 10.0,
+      });
+
+      // 2. Safe upsert with updated principal amount
+      final updatedRecord = RecordEntity(
+        id: 'rec-upsert-safe',
+        transactionId: 'TRAN092699',
+        type: 'GIVEN',
+        customerId: 'c-1',
+        startDate: '2026-09-20T10:00:00',
+        principalAmount: 60000.0,
+        interestRate: 2.5,
+        status: 'ACTIVE',
+      );
+      await recordDao.upsert(updatedRecord);
+
+      // 3. Child item must still exist (not deleted by cascade delete footgun!)
+      final childItems = await db.query('ledger_items', where: 'recordId = ?', whereArgs: ['rec-upsert-safe']);
+      expect(childItems.length, 1);
+      expect(childItems.first['name'], 'Gold Ring');
+
+      // Record updated correctly
+      final fetched = await recordDao.getById('rec-upsert-safe');
+      expect(fetched!.principalAmount, 60000.0);
+      expect(fetched.interestRate, 2.5);
+    });
   });
 }

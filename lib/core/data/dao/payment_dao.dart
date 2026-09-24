@@ -77,4 +77,38 @@ class PaymentDao {
     );
     return maps.map((m) => PaymentEntity.fromMap(m)).toList();
   }
+
+  /// Gets a payment by ID
+  Future<PaymentEntity?> getById(String id) async {
+    final maps = await _db.query(
+      'payments',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (maps.isEmpty) return null;
+    return PaymentEntity.fromMap(maps.first);
+  }
+
+  /// v1.16 [FIX-REPLAY-1]: rewrite the cached interest/principal split of one payment.
+  Future<int> updateSplit(String id, double interestPaid, double principalPaid) async {
+    final count = await _db.update(
+      'payments',
+      {
+        'interestPaid': interestPaid,
+        'principalPaid': principalPaid,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _paymentChanges.add(null);
+    return count;
+  }
+
+  /// v1.16 [FIX-PAYMENT-DELETE-1]: used only by RecordRepositoryImpl.deletePayment().
+  /// WHERE-clause delete directly via SQL without loading full entity.
+  Future<int> deleteById(String id) async {
+    final count = await _db.delete('payments', where: 'id = ?', whereArgs: [id]);
+    _paymentChanges.add(null);
+    return count;
+  }
 }

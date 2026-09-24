@@ -36,6 +36,9 @@ bool FlutterWindow::OnCreate() {
   // window is shown. It is a no-op if the first frame hasn't completed yet.
   flutter_controller_->ForceRedraw();
 
+  // Explicitly ensure the native window is shown immediately on startup
+  this->Show();
+
   return true;
 }
 

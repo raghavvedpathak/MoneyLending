@@ -3,10 +3,7 @@ import '../../../../data/repositories/customer_repository_impl.dart';
 import '../../../../data/repositories/item_rate_repository_impl.dart';
 import '../../../../data/repositories/record_repository_impl.dart';
 import '../../../../data/repositories/settings_repository_impl.dart';
-import '../../../../domain/repositories/customer_repository.dart';
-import '../../../../domain/repositories/item_rate_repository.dart';
-import '../../../../domain/repositories/record_repository.dart';
-import '../../../../domain/repositories/settings_repository.dart';
+import '../../domain/domain.dart';
 import 'database_provider.dart';
 
 /// Repository Riverpod providers [FIX-ARCH-DB-1] & [FIX-SINGLETON-SCOPE-1].
@@ -35,4 +32,11 @@ final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
 final itemRateRepositoryProvider = Provider<ItemRateRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return ItemRateRepositoryImpl(db);
+});
+
+/// Reactive StreamProvider exposing settings [FIX-ARCH-SETTINGS-1].
+/// Never null — emits default settings on first access and updates reactively.
+final settingsStreamProvider = StreamProvider<Settings>((ref) {
+  final repo = ref.watch(settingsRepositoryProvider);
+  return repo.watchSettings();
 });

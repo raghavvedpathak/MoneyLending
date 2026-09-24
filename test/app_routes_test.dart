@@ -47,5 +47,13 @@ void main() {
       expect(editEntry.path, '/entry/edit/rec_789');
       expect(addPayment.path, '/payment/add/rec_789');
     });
+
+    test('Parametric routes generate exact path according to §2.4 spec sample', () {
+      const cust = CustomerDetailRoute('CUST001');
+      expect(cust.path, '/customer/CUST001');
+
+      const rec = RecordDetailRoute('TRAN001');
+      expect(rec.path, '/record/TRAN001');
+    });
   });
 }

@@ -193,5 +193,44 @@ void main() {
       expect(financials.totalDue, 0.0);
       expect(financials.overpaymentAmount, 1000.0); // max(0.0, -(-1000))
     });
+
+    test('6. [FIX-SETTLED-WRITEOFF-1] Settled record with positive totalDue represents written-off balance at settlement', () {
+      final settledWithWriteoff = LedgerRecord(
+        id: 'rec-settled-writeoff',
+        transactionId: 'TXN-000006',
+        type: RecordType.GIVEN,
+        customerId: 'c-6',
+        startDate: DateTime(2026, 1, 1),
+        status: RecordStatus.SETTLED,
+        settledDate: DateTime(2026, 3, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        calculatedInterest: 400.0,
+        payments: [
+          Payment(
+            id: 'p-wo-1',
+            recordId: 'rec-settled-writeoff',
+            amount: 8400.0,
+            date: DateTime(2026, 3, 1),
+            notes: 'Settled with write-off of remaining 2000',
+            interestPaid: 400.0,
+            principalPaid: 8000.0,
+          ),
+        ],
+      );
+
+      final financials = calculateRecordFinancials(settledWithWriteoff, DateTime(2026, 12, 31));
+
+      // net = (400 - 400) + (10000 - 8000) = 2000.0
+      // totalDue = 2000.0 (written off at settlement)
+      // overpaymentAmount = 0.0
+      expect(financials.totalInterest, 400.0);
+      expect(financials.interestPaid, 400.0);
+      expect(financials.principalPaid, 8000.0);
+      expect(financials.outstandingInterest, 0.0);
+      expect(financials.outstandingPrincipal, 2000.0);
+      expect(financials.totalDue, 2000.0);
+      expect(financials.overpaymentAmount, 0.0);
+    });
   });
 }

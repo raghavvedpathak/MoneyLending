@@ -5,6 +5,8 @@ import '../../../data/datasources/database_helper.dart';
 import '../../../domain/repositories/customer_repository.dart';
 import '../../../domain/repositories/record_repository.dart';
 import '../../di/injection.dart';
+import '../../domain/repository/item_rate_repository.dart';
+import '../../domain/repository/settings_repository.dart';
 import 'backup_serializer.dart';
 import 'models/backup_retired_id.dart';
 import 'models/backup_wrapper.dart';
@@ -34,14 +36,20 @@ class BackupService {
   final DatabaseHelper _dbHelper;
   final CustomerRepository _customerRepository;
   final RecordRepository _recordRepository;
+  final SettingsRepository? _settingsRepository;
+  final ItemRateRepository? _itemRateRepository;
 
   BackupService({
     DatabaseHelper? dbHelper,
     CustomerRepository? customerRepository,
     RecordRepository? recordRepository,
+    SettingsRepository? settingsRepository,
+    ItemRateRepository? itemRateRepository,
   })  : _dbHelper = dbHelper ?? DatabaseHelper.instance,
         _customerRepository = customerRepository ?? sl<CustomerRepository>(),
-        _recordRepository = recordRepository ?? sl<RecordRepository>();
+        _recordRepository = recordRepository ?? sl<RecordRepository>(),
+        _settingsRepository = settingsRepository ?? (sl.isRegistered<SettingsRepository>() ? sl<SettingsRepository>() : null),
+        _itemRateRepository = itemRateRepository ?? (sl.isRegistered<ItemRateRepository>() ? sl<ItemRateRepository>() : null);
 
   /// Formats a DateTime as yyyyMMdd_HHmmss using padLeft (§7.2).
   ///
@@ -148,10 +156,19 @@ class BackupService {
       retiredAt: m['retiredAt'] as String? ?? '',
     )).toList();
 
+    final settings = _settingsRepository != null
+        ? await _settingsRepository.getSettingsOnce()
+        : null;
+    final itemRates = _itemRateRepository != null
+        ? await _itemRateRepository.getCurrentRatesOnce()
+        : null;
+
     final wrapper = BackupSerializer.fromDomain(
       customers: customers,
       records: records,
       retiredIds: retiredIds,
+      settings: settings,
+      itemRates: itemRates,
     );
 
     return BackupSerializer.encode(wrapper);
@@ -298,6 +315,24 @@ class BackupService {
       'retiredAt': ret.retiredAt,
     }).toList();
 
+    final settingsMap = wrapper.settings != null
+        ? {
+            'id': 1,
+            'name': wrapper.settings!.name,
+            'phone': wrapper.settings!.phone,
+            'address': wrapper.settings!.address,
+            'defaultInterestRate': wrapper.settings!.defaultInterestRate,
+          }
+        : null;
+
+    final itemRateMaps = wrapper.itemRates?.map((r) => {
+      'id': r.id,
+      'itemCategory': r.itemCategory,
+      'ratePerUnit': r.ratePerUnit,
+      'effectiveDate': r.effectiveDate,
+      'updatedAt': r.updatedAt,
+    }).toList();
+
     // 3. Atomically restore into database (replace-all inside single transaction)
     await _dbHelper.restoreBackupTransactionally(
       customers: customerMaps,
@@ -305,9 +340,31 @@ class BackupService {
       ledgerItems: itemMaps,
       payments: paymentMaps,
       retiredIds: retiredMaps,
+      settings: settingsMap,
+      itemRates: itemRateMaps,
     );
 
-    // 4. Refresh reactive streams across UI
+    // 4. Restore settings and itemRates if present per [FIX-BACKUP-CONFIG-1] (v1.16) & Addendum J.7
+    // null (key missing) = leave device current value alone; present (including empty) = replace.
+    if (wrapper.settings != null && _settingsRepository != null) {
+      await _settingsRepository.updateSettings(wrapper.settings!.toDomain());
+    }
+    if (wrapper.itemRates != null && _itemRateRepository != null) {
+      for (final r in wrapper.itemRates!) {
+        await _itemRateRepository.upsertRate(r.toDomain());
+      }
+    }
+
+    // 5. Refresh reactive streams across UI
+    await _customerRepository.refresh();
+    await _recordRepository.refresh();
+  }
+
+  /// Completely clears all data from the database and refreshes repository streams (§10.4).
+  /// Empties payments, ledger_items, records, customers, and retired_ids,
+  /// causing every ID sequence (Customer, Transaction, Payment) to restart at 01.
+  Future<void> clearAllData() async {
+    await _dbHelper.clearAllData();
     await _customerRepository.refresh();
     await _recordRepository.refresh();
   }

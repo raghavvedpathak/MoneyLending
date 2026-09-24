@@ -1,7 +1,10 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/core/core.dart';
 import 'package:money_lending/core/pdf/pdf.dart';
 import 'package:money_lending/features/reports/reports.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 void main() {
   final testToday = DateTime(2026, 6, 1);
@@ -179,9 +182,10 @@ void main() {
         ],
       );
 
-      // Verify formatPdfTimestamp output explicitly
-      expect(formatPdfTimestamp(exactStart), '23/04/2026, 14:30');
-      expect(formatPdfTimestamp(exactPaymentDate), '10/05/2026, 16:45');
+      // Verify formatDate output per [FIX-TIMESTAMP-PDF-1] (revised v1.15):
+      // Every date in the PDF is printed with formatDate() ("5 August 2026"); no times are printed.
+      expect(AppDateFormatter.formatDate(exactStart), '23 April 2026');
+      expect(AppDateFormatter.formatDate(exactPaymentDate), '10 May 2026');
 
       final statement = generateCustomerStatement(
         customerWithFmt,
@@ -260,6 +264,56 @@ void main() {
       expect(pdfBytes[1], 0x50);
       expect(pdfBytes[2], 0x44);
       expect(pdfBytes[3], 0x46);
+    });
+
+    test('generateCustomerStatement supports [FIX-PDF-FONT-1] PdfFonts signature', () async {
+      final customFonts = PdfFonts(
+        regular: pw.Font.helvetica(),
+        bold: pw.Font.helveticaBold(),
+      );
+
+      final statement = generateCustomerStatement(
+        customer1,
+        records,
+        businessInfo,
+        customFonts,
+      );
+
+      expect(statement.fonts, equals(customFonts));
+      final theme = statement.fonts!.toTheme();
+      expect(theme, isNotNull);
+
+      final doc = statement.buildDocument();
+      expect(doc, isNotNull);
+
+      final bytes = await statement.buildPdf();
+      expect(bytes.length, greaterThan(500));
+      expect(bytes[0], 0x25); // %
+    });
+
+    test('generateAllCustomersReport supports [FIX-PDF-FONT-1] PdfFonts signature', () async {
+      final customFonts = PdfFonts(
+        regular: pw.Font.helvetica(),
+        bold: pw.Font.helveticaBold(),
+      );
+
+      final report = generateAllCustomersReport(
+        customers,
+        records,
+        businessInfo,
+        customFonts,
+      );
+
+      expect(report.fonts, equals(customFonts));
+      final theme = report.fonts!.toTheme();
+      expect(theme, isNotNull);
+
+      final doc = report.buildDocument();
+      expect(doc, isNotNull);
+
+      final bytes = await report.buildPdf();
+      expect(bytes.length, greaterThan(500));
+      expect(bytes[0], 0x25); // %
     });
   });
 
@@ -451,6 +505,73 @@ void main() {
       );
 
       notifier.dispose();
+    });
+  });
+
+  group('PDF Background Generation & Sharing Pipeline (§6.3)', () {
+    test('compute(buildStatementBytes, StatementJob(...)) produces PDF bytes on background isolate [FIX-PDFBGTHREAD-1]', () async {
+      final job = StatementJob(
+        customer1,
+        records,
+        businessInfo,
+        null,
+        testToday,
+      );
+
+      final bytes = await compute(buildStatementBytes, job);
+
+      expect(bytes, isNotNull);
+      expect(bytes.length, greaterThan(500));
+      // %PDF header
+      expect(bytes[0], 0x25);
+      expect(bytes[1], 0x50);
+      expect(bytes[2], 0x44);
+      expect(bytes[3], 0x46);
+    });
+
+    test('compute(buildAllCustomersBytes, AllCustomersJob(...)) produces PDF bytes on background isolate [FIX-PDFBGTHREAD-1]', () async {
+      final job = AllCustomersJob(
+        customers,
+        records,
+        businessInfo,
+        null,
+        testToday,
+      );
+
+      final bytes = await compute(buildAllCustomersBytes, job);
+
+      expect(bytes, isNotNull);
+      expect(bytes.length, greaterThan(500));
+      expect(bytes[0], 0x25);
+      expect(bytes[1], 0x50);
+      expect(bytes[2], 0x44);
+      expect(bytes[3], 0x46);
+    });
+
+    test('PdfShareService saves PDF to temp dir under pdfs/ matching §6.3 file path specification', () async {
+      final tempDir = Directory.systemTemp.createTempSync('pdf_share_test_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+
+      final shareService = PdfShareService(overrideDirectory: tempDir);
+      final dummyBytes = Uint8List.fromList([0x25, 0x50, 0x44, 0x46, 0x31]); // %PDF1
+      final fileName = '${customer1.displayId}_statement.pdf';
+
+      final savedFile = await shareService.savePdfFile(
+        bytes: dummyBytes,
+        fileName: fileName,
+      );
+
+      expect(savedFile.existsSync(), isTrue);
+      expect(savedFile.path.replaceAll('\\', '/'), endsWith('pdfs/${customer1.displayId}_statement.pdf'));
+      expect(savedFile.readAsBytesSync(), equals(dummyBytes));
+    });
+
+    test('loadPdfFonts is exported and callable on UI isolate per [FIX-PDF-FONT-1] & §6.3', () {
+      expect(loadPdfFonts, isA<Function>());
     });
   });
 }

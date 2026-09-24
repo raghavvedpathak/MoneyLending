@@ -6,6 +6,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../domain/domain.dart';
+import 'all_customers_report_generator.dart';
+import 'customer_statement_generator.dart';
+import 'pdf_fonts.dart';
 
 /// PDF Sharing Service (:core:pdf).
 ///
@@ -113,6 +116,49 @@ class PdfShareService {
       fileName: fileName,
       subject: subject,
       chooserTitle: 'Share Customer Statement',
+    );
+  }
+
+  /// Generates customer statement bytes on a background isolate via [compute]
+  /// and shares the resulting PDF file ([FIX-PDFBGTHREAD-1] & §6.3).
+  Future<bool> generateAndShareCustomerStatement({
+    required Customer customer,
+    required List<LedgerRecord> records,
+    BusinessInfo businessInfo = const BusinessInfo(),
+    PdfFonts? fonts,
+    DateTime? today,
+  }) async {
+    final effectiveFonts = fonts ?? await loadPdfFonts();
+    final bytes = await compute(
+      buildStatementBytes,
+      StatementJob(customer, records, businessInfo, effectiveFonts, today),
+    );
+    return shareCustomerStatement(
+      customer: customer,
+      bytes: bytes,
+    );
+  }
+
+  /// Generates all customers report bytes on a background isolate via [compute]
+  /// and shares the resulting PDF file ([FIX-PDFBGTHREAD-1] & §6.3).
+  Future<bool> generateAndShareAllCustomersReport({
+    required List<Customer> customers,
+    required List<LedgerRecord> records,
+    BusinessInfo businessInfo = const BusinessInfo(),
+    PdfFonts? fonts,
+    DateTime? today,
+  }) async {
+    final effectiveFonts = fonts ?? await loadPdfFonts();
+    final bytes = await compute(
+      buildAllCustomersBytes,
+      AllCustomersJob(customers, records, businessInfo, effectiveFonts, today),
+    );
+    final fileName = 'all_customers_report_${DateTime.now().millisecondsSinceEpoch}.pdf';
+    return sharePdf(
+      bytes: bytes,
+      fileName: fileName,
+      subject: 'All Customers Loan Ledger Report',
+      chooserTitle: 'Share All Customers Report',
     );
   }
 }

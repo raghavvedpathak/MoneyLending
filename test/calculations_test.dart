@@ -470,6 +470,322 @@ void main() {
       expect(mergedBreached.daysSinceActivity, 152);
       expect(mergedBreached.currentCollateralValue, 40000.0);
     });
+
+    test('Payment.withSplit returns new Payment with recalculated split ([FIX-REPLAY-1])', () {
+      final p = Payment(
+        id: 'p-1',
+        paymentId: 'PAY092601',
+        recordId: 'rec-1',
+        amount: 1500.0,
+        date: DateTime(2026, 9, 15, 14, 30),
+        notes: 'Partial payment',
+        interestPaid: 500.0,
+        principalPaid: 1000.0,
+      );
+
+      final updated = p.withSplit(400.0, 1100.0);
+      expect(updated.id, 'p-1');
+      expect(updated.paymentId, 'PAY092601');
+      expect(updated.recordId, 'rec-1');
+      expect(updated.amount, 1500.0);
+      expect(updated.date, DateTime(2026, 9, 15, 14, 30));
+      expect(updated.notes, 'Partial payment');
+      expect(updated.interestPaid, 400.0);
+      expect(updated.principalPaid, 1100.0);
+    });
+
+    test('lastActivityDate derives from payments or startDate ([FIX-LASTACTIVITY-1])', () {
+      final recNoPayments = LedgerRecord(
+        id: 'r-no-pay',
+        transactionId: 'TRAN092601',
+        customerId: 'c-1',
+        type: RecordType.given,
+        status: RecordStatus.active,
+        startDate: DateTime(2026, 1, 15, 10, 30),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        payments: const [],
+      );
+      expect(lastActivityDate(recNoPayments), DateTime(2026, 1, 15));
+
+      final recWithPayments = LedgerRecord(
+        id: 'r-with-pay',
+        transactionId: 'TRAN092602',
+        customerId: 'c-1',
+        type: RecordType.given,
+        status: RecordStatus.active,
+        startDate: DateTime(2026, 1, 15, 10, 30),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        payments: [
+          Payment(
+            id: 'p-1',
+            paymentId: 'PAY092601',
+            recordId: 'r-with-pay',
+            amount: 500.0,
+            date: DateTime(2026, 2, 20, 11, 0),
+            notes: '',
+            interestPaid: 200.0,
+            principalPaid: 300.0,
+          ),
+          Payment(
+            id: 'p-2',
+            paymentId: 'PAY092602',
+            recordId: 'r-with-pay',
+            amount: 800.0,
+            date: DateTime(2026, 4, 10, 15, 45),
+            notes: '',
+            interestPaid: 200.0,
+            principalPaid: 600.0,
+          ),
+        ],
+      );
+      expect(lastActivityDate(recWithPayments), DateTime(2026, 4, 10));
+    });
+
+    test('getOverdue works directly without latestPaymentDates map ([FIX-LASTACTIVITY-1])', () {
+      final today = DateTime(2026, 6, 1);
+      final activeRecOverdue = LedgerRecord(
+        id: 'r-overdue',
+        transactionId: 'TRAN092603',
+        customerId: 'c-1',
+        type: RecordType.given,
+        status: RecordStatus.active,
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        payments: [
+          Payment(
+            id: 'p-old',
+            paymentId: 'PAY092603',
+            recordId: 'r-overdue',
+            amount: 400.0,
+            date: DateTime(2026, 3, 1),
+            notes: '',
+            interestPaid: 400.0,
+            principalPaid: 0.0,
+          ),
+        ],
+      );
+
+      final activeRecRecent = LedgerRecord(
+        id: 'r-recent',
+        transactionId: 'TRAN092604',
+        customerId: 'c-1',
+        type: RecordType.given,
+        status: RecordStatus.active,
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        payments: [
+          Payment(
+            id: 'p-new',
+            paymentId: 'PAY092604',
+            recordId: 'r-recent',
+            amount: 400.0,
+            date: DateTime(2026, 5, 20),
+            notes: '',
+            interestPaid: 400.0,
+            principalPaid: 0.0,
+          ),
+        ],
+      );
+
+      // Calling getOverdue without latestPaymentDates map:
+      final overdueList = getOverdue(
+        records: [activeRecOverdue, activeRecRecent],
+        today: today,
+        thresholdDays: 30,
+      );
+
+      expect(overdueList.length, 1);
+      expect(overdueList.first.record.id, 'r-overdue');
+      expect(overdueList.first.lastActivityDate, DateTime(2026, 3, 1));
+      expect(overdueList.first.daysSinceActivity, 92); // March 1 to June 1 = 92 days
+    });
+
+    test('liveItemValue computes roundMoney(fineWeight * rate) ([FIX-MONEY-1] & Addendum J.1)', () {
+      const item = LedgerItem(
+        id: 'it-1',
+        recordId: 'r-1',
+        name: 'Gold Ring',
+        itemCategory: 'GOLD',
+        weight: 12.345,
+        purity: 91.6, // 22K
+        rate: 6500.0,
+        itemValue: 73500.0,
+        lendPercentage: 80.0,
+        lendableAmount: 58800.0,
+      );
+
+      // fineWeight = 12.345 * (91.6 / 100) = 11.30802
+      // liveItemValue at 7000/g = roundMoney(11.30802 * 7000) = roundMoney(79156.14) = 79156.14
+      final liveVal = liveItemValue(item, 7000.0);
+      expect(liveVal, 79156.14);
+    });
+
+    test('reallocatePayments replays payments oldest-first and recalculates splits ([FIX-REPLAY-1] & J.2)', () {
+      // Loan of 10,000 at 2%/month started on 1 Jan 2026
+      // Payment 1 on 1 March 2026 (2 months interest = 400): pays 500 -> interest 400, principal 100
+      // Payment 2 on 1 May 2026 (4 months total interest = 800, previously paid 400 -> outstanding 400): pays 1000 -> interest 400, principal 600
+      final rec = LedgerRecord(
+        id: 'rec-replay',
+        transactionId: 'TRAN092605',
+        customerId: 'c-1',
+        type: RecordType.given,
+        status: RecordStatus.active,
+        startDate: DateTime(2026, 1, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        // Payments initially entered with inaccurate or legacy splits:
+        payments: [
+          Payment(
+            id: 'p-2',
+            paymentId: 'PAY092606',
+            recordId: 'rec-replay',
+            amount: 1000.0,
+            date: DateTime(2026, 5, 1),
+            notes: 'Second payment',
+            interestPaid: 0.0, // wrong legacy split
+            principalPaid: 1000.0,
+          ),
+          Payment(
+            id: 'p-1',
+            paymentId: 'PAY092605',
+            recordId: 'rec-replay',
+            amount: 500.0,
+            date: DateTime(2026, 3, 1),
+            notes: 'First payment',
+            interestPaid: 0.0, // wrong legacy split
+            principalPaid: 500.0,
+          ),
+        ],
+      );
+
+      final replayed = reallocatePayments(rec);
+      expect(replayed.length, 2);
+
+      // Replayed oldest-first: p-1 on March 1 first
+      expect(replayed[0].id, 'p-1');
+      expect(replayed[0].interestPaid, 400.0);
+      expect(replayed[0].principalPaid, 100.0);
+
+      // p-2 on May 1 second:
+      // Total accrued up to May 1 = 800. Accumulated interest paid so far = 400. Outstanding = 400.
+      expect(replayed[1].id, 'p-2');
+      expect(replayed[1].interestPaid, 400.0);
+      expect(replayed[1].principalPaid, 600.0);
+    });
+
+    test('checkPaymentInsert validates payment rules and backdated refund ordering (Addendum J.3)', () {
+      final activeRec = LedgerRecord(
+        id: 'rec-validate',
+        transactionId: 'TRAN092607',
+        customerId: 'c-1',
+        type: RecordType.given,
+        status: RecordStatus.active,
+        startDate: DateTime(2026, 2, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        payments: [
+          Payment(
+            id: 'p-1',
+            paymentId: 'PAY092607',
+            recordId: 'rec-validate',
+            amount: 2000.0,
+            date: DateTime(2026, 3, 15),
+            notes: '',
+            interestPaid: 400.0,
+            principalPaid: 1600.0,
+          ),
+        ],
+      );
+
+      // 1. Valid normal payment
+      final validPay = checkPaymentInsert(
+        record: activeRec,
+        amount: 500.0,
+        date: DateTime(2026, 4, 1),
+      );
+      expect(validPay.$1, isTrue);
+      expect(validPay.$2, isNull);
+
+      // 2. Cannot add payment to settled record
+      final settledRec = activeRec.copyWith(status: RecordStatus.settled);
+      final invalidSettled = checkPaymentInsert(
+        record: settledRec,
+        amount: 500.0,
+        date: DateTime(2026, 4, 1),
+      );
+      expect(invalidSettled.$1, isFalse);
+      expect(invalidSettled.$2, contains('settled'));
+
+      // 3. Cannot add zero payment
+      final zeroPay = checkPaymentInsert(
+        record: activeRec,
+        amount: 0.0,
+        date: DateTime(2026, 4, 1),
+      );
+      expect(zeroPay.$1, isFalse);
+      expect(zeroPay.$2, contains('zero'));
+
+      // 4. Payment date cannot precede record start date
+      final beforeStart = checkPaymentInsert(
+        record: activeRec,
+        amount: 500.0,
+        date: DateTime(2026, 1, 15),
+      );
+      expect(beforeStart.$1, isFalse);
+      expect(beforeStart.$2, contains('start date'));
+
+      // 5. Valid refund
+      final validRefund = checkPaymentInsert(
+        record: activeRec,
+        amount: -500.0,
+        date: DateTime(2026, 3, 20),
+      );
+      expect(validRefund.$1, isTrue);
+
+      // 6. Refund cannot exceed total payments received (totalPaid = 2000)
+      final excessiveRefund = checkPaymentInsert(
+        record: activeRec,
+        amount: -2500.0,
+        date: DateTime(2026, 3, 20),
+      );
+      expect(excessiveRefund.$1, isFalse);
+      expect(excessiveRefund.$2, contains('exceed'));
+
+      // 7. Backdated refund cannot be dated before the earliest payment (Addendum J.3 / v1.17 rule)
+      final backdatedRefund = checkPaymentInsert(
+        record: activeRec,
+        amount: -500.0,
+        date: DateTime(2026, 2, 15), // before 2026-03-15
+      );
+      expect(backdatedRefund.$1, isFalse);
+      expect(backdatedRefund.$2, contains('earlier than the payment it refunds'));
+    });
+
+    test('shouldNotify enforces throttle rules (Addendum J.8)', () {
+      final today = DateTime(2026, 9, 23);
+
+      // Never notified -> true
+      expect(shouldNotify(lastNotifiedDate: null, today: today), isTrue);
+
+      // Notified today -> false (0 days gap < 1 throttleDay)
+      expect(shouldNotify(lastNotifiedDate: today, today: today), isFalse);
+
+      // Notified yesterday -> true (1 day gap >= 1 throttleDay)
+      final yesterday = DateTime(2026, 9, 22);
+      expect(shouldNotify(lastNotifiedDate: yesterday, today: today), isTrue);
+
+      // Notified 2 days ago with 3 throttle days -> false (2 < 3)
+      final twoDaysAgo = DateTime(2026, 9, 21);
+      expect(shouldNotify(lastNotifiedDate: twoDaysAgo, today: today, throttleDays: 3), isFalse);
+
+      // Notified 3 days ago with 3 throttle days -> true (3 >= 3)
+      final threeDaysAgo = DateTime(2026, 9, 20);
+      expect(shouldNotify(lastNotifiedDate: threeDaysAgo, today: today, throttleDays: 3), isTrue);
+    });
   });
 }
 

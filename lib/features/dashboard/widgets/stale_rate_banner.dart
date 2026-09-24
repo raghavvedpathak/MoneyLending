@@ -48,7 +48,7 @@ class StaleRateBanner extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Some rates were last updated on $dateStr. Update today’s rates for accurate alerts.',
+                  '⚠️ Some rates were last updated on $dateStr. Update today’s rates for accurate alerts.',
                   style: const TextStyle(
                     color: AppTheme.goldDark,
                     fontSize: 13,

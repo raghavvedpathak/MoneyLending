@@ -53,4 +53,16 @@ class Payment {
       paymentId: paymentId ?? this.paymentId,
     );
   }
+
+  /// [FIX-REPLAY-1] (v1.16) copy with a recalculated interest/principal split
+  Payment withSplit(double interestPaid, double principalPaid) => Payment(
+    id: id,
+    paymentId: paymentId,
+    recordId: recordId,
+    amount: amount,
+    date: date,
+    notes: notes,
+    interestPaid: interestPaid,
+    principalPaid: principalPaid,
+  );
 }

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:drift/drift.dart' as drift;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/core/calculations/calculations.dart';
 import 'package:money_lending/data/data.dart';
@@ -67,6 +68,9 @@ void main() {
       const dateOnlyConverter = DateOnlyConverter();
       const localDateTimeConverter = LocalDateTimeConverter();
 
+      expect(dateOnlyConverter, isA<drift.TypeConverter<DateTime, String>>());
+      expect(localDateTimeConverter, isA<drift.TypeConverter<DateTime, String>>());
+
       // (1) LocalDateTimeConverter round-trips 2026-04-23T14:30:00 exactly
       final dt = DateTime(2026, 4, 23, 14, 30, 0);
       final sqlDt = localDateTimeConverter.toSql(dt);
@@ -93,6 +97,21 @@ void main() {
       ];
       final sorted = List<String>.from(dates)..sort();
       expect(sorted, dates);
+    });
+
+    test('Mandatory monetary comment exists above every monetary table [FIX-MONEY-1]', () {
+      const mandatoryComment =
+          '// DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; money is a REAL rounded to 2 decimals with roundMoney(); see §4.2 and Addendum J.1.';
+
+      final dbHelperFile = File('lib/data/datasources/database_helper.dart');
+      expect(dbHelperFile.existsSync(), isTrue);
+      final dbHelperContent = dbHelperFile.readAsStringSync();
+      expect(dbHelperContent.contains(mandatoryComment), isTrue);
+
+      final driftTablesFile = File('lib/core/data/schema/drift_tables.dart');
+      expect(driftTablesFile.existsSync(), isTrue);
+      final driftTablesContent = driftTablesFile.readAsStringSync();
+      expect(driftTablesContent.contains(mandatoryComment), isTrue);
     });
 
     test('calculateNetProfit uses accrual-based gross interest spread [FIX-PROFIT-SCOPE-1]', () {
@@ -136,6 +155,17 @@ void main() {
       expect(content.contains('minSdk = 26'), isTrue);
       expect(content.contains('targetSdk = 36'), isTrue);
       expect(content.contains('compileSdk = 36'), isTrue);
+    });
+
+    test('Tech Stack §3 adheres to [FIX-DEP-WORKMANAGER-1] zero workmanager dependency', () {
+      final pubspec = File('pubspec.yaml');
+      expect(pubspec.existsSync(), isTrue);
+      final content = pubspec.readAsStringSync();
+      expect(
+        content.contains('workmanager'),
+        isFalse,
+        reason: 'workmanager must not be depended on [FIX-DEP-WORKMANAGER-1]',
+      );
     });
 
     test('[FIX-APPID-1] Zero stale names (byajbook, vjbilling, com.example) in android/, lib/, pubspec.yaml', () {

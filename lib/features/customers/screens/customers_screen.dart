@@ -7,6 +7,7 @@ import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../core/utils/uuid_generator.dart';
 import '../../../domain/domain.dart';
+import '../widgets/add_edit_customer_dialog.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -54,82 +55,16 @@ class _CustomersScreenState extends State<CustomersScreen> {
     }
   }
 
-  void _showAddCustomerDialog() {
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final addressCtrl = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add New Customer'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Full Name *',
-                  prefixIcon: Icon(Icons.person),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: phoneCtrl,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number',
-                  prefixIcon: Icon(Icons.phone),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: addressCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Address',
-                  prefixIcon: Icon(Icons.location_on),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final name = nameCtrl.text.trim();
-              if (name.isEmpty) return;
-
-              final customer = Customer(
-                id: AppUuid.generate(),
-                displayId: '', // Auto-generates CUST-0001
-                name: name,
-                phone: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
-                address: addressCtrl.text.trim().isEmpty ? null : addressCtrl.text.trim(),
-                createdAt: DateTime.now(),
-              );
-
-              await _customerRepository.insertCustomer(customer);
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
-              }
-              if (mounted) {
-                _loadCustomers();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  AppTheme.successSnackBar('Customer added!'),
-                );
-              }
-            },
-            child: const Text('Save Customer'),
-          ),
-        ],
-      ),
-    );
+  Future<void> _showAddCustomerDialog() async {
+    final added = await AddEditCustomerDialog.show(context);
+    if (added == true && mounted) {
+      _loadCustomers();
+      ScaffoldMessenger.of(context).showSnackBar(
+        AppTheme.successSnackBar('Customer added!'),
+      );
+    }
   }
+
 
   void _showCustomerDetailSheet(Customer customer) async {
     final records = await _recordRepository.getRecordsByCustomer(customer.id).first;
@@ -436,7 +371,15 @@ class _CustomersScreenState extends State<CustomersScreen> {
                           final customer = _filteredCustomers[index];
                           return Card(
                             child: ListTile(
-                              onTap: () => _showCustomerDetailSheet(customer),
+                              onTap: () async {
+                                await AppNavigator.navigate(
+                                  context,
+                                  CustomerDetailRoute(customer.id),
+                                );
+                                if (mounted) {
+                                  _loadCustomers();
+                                }
+                              },
                               leading: CircleAvatar(
                                 backgroundColor: AppTheme.gold.withValues(alpha: 0.15),
                                 foregroundColor: AppTheme.gold,
@@ -447,26 +390,37 @@ class _CustomersScreenState extends State<CustomersScreen> {
                               ),
                               title: Text(
                                 customer.name,
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                               ),
-                              subtitle: Text(
-                                customer.phone ?? 'No phone number',
-                                style: const TextStyle(color: AppTheme.textSecondary),
-                              ),
-                              trailing: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: AppTheme.tagDecoration(),
-                                child: Text(
-                                  customer.displayId,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                    color: AppTheme.gold,
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    customer.displayId,
+                                    style: const TextStyle(
+                                      color: AppTheme.gold,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
                                   ),
-                                ),
+                                  if (customer.phone != null && customer.phone!.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      customer.phone!,
+                                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              trailing: const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 14,
+                                color: AppTheme.textMuted,
                               ),
                             ),
                           );
+
                         },
                       ),
           ),

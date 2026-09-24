@@ -60,7 +60,13 @@ void main() {
       expect(zeroAlloc.principalPaid, 0.0);
     });
 
-    test('6. Financials isPrincipalFullyPaid and LedgerRecord canBeSettled helpers', () {
+    test('6. (Case 6) [FIX-MONEY-1] Rounding: 500.10 with 154.32 outstandingInterest returns (154.32, 345.78)', () {
+      final alloc = allocatePayment(paymentAmount: 500.10, outstandingInterest: 154.32);
+      expect(alloc.interestPaid, 154.32);
+      expect(alloc.principalPaid, 345.78);
+    });
+
+    test('7. Financials isPrincipalFullyPaid and LedgerRecord canBeSettled helpers', () {
       const activeFinUnderpaid = Financials(
         principal: 10000.0,
         totalInterest: 400.0,

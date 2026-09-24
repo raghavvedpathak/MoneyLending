@@ -1,4 +1,6 @@
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_lending/app/background/daily_check.dart';
 import 'package:money_lending/core/calculations/calculation_engine.dart';
 import 'package:money_lending/core/data/dao/record_activity_row.dart';
 import 'package:money_lending/core/notifications/overdue_notification_service.dart';
@@ -9,6 +11,7 @@ import 'package:money_lending/data/models/payment_entity.dart';
 import 'package:money_lending/data/models/record_entity.dart';
 import 'package:money_lending/data/repositories/record_repository_impl.dart';
 import 'package:money_lending/domain/domain.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -495,5 +498,190 @@ void main() {
       expect(rowCamel.recordId, 'r-2');
       expect(rowCamel.lastPaymentDate, isNull);
     });
+
+    test('10. [FIX-NOTIFY-THROTTLE-1] (Addendum J.8) shouldNotify throttling: 7-day wait vs immediate trigger on reason change', () {
+      final baseDate = DateTime(2026, 9, 1);
+
+      // Scenario A: Never notified before -> should notify immediately
+      expect(
+        CalculationEngine.shouldNotify(
+          lastNotifiedDate: null,
+          today: baseDate,
+          throttleDays: 7,
+        ),
+        isTrue,
+      );
+
+      // Scenario B: Same reasons, 3 days elapsed (< 7) -> throttled (false)
+      final day3 = DateTime(2026, 9, 4);
+      expect(
+        CalculationEngine.shouldNotify(
+          lastNotifiedDate: baseDate,
+          today: day3,
+          throttleDays: 7,
+          lastReasons: const {OverdueReason.noActivity},
+          currentReasons: const {OverdueReason.noActivity},
+        ),
+        isFalse,
+      );
+
+      // Scenario C: Same reasons, 7 days elapsed (>= 7) -> allowed (true)
+      final day7 = DateTime(2026, 9, 8);
+      expect(
+        CalculationEngine.shouldNotify(
+          lastNotifiedDate: baseDate,
+          today: day7,
+          throttleDays: 7,
+          lastReasons: const {OverdueReason.noActivity},
+          currentReasons: const {OverdueReason.noActivity},
+        ),
+        isTrue,
+      );
+
+      // Scenario D: Reasons changed, only 1 day elapsed -> MUST re-notify immediately
+      final day1 = DateTime(2026, 9, 2);
+      expect(
+        CalculationEngine.shouldNotify(
+          lastNotifiedDate: baseDate,
+          today: day1,
+          throttleDays: 7,
+          lastReasons: const {OverdueReason.noActivity},
+          currentReasons: const {OverdueReason.noActivity, OverdueReason.collateralBreachedNow},
+        ),
+        isTrue,
+      );
+    });
+
+    test('11. Section 8 Notification channels and daily_check exports verification', () {
+      // Channel 1: Overdue Alerts (moneylending_alerts, Importance.defaultImportance)
+      expect(overdueChannel.id, 'moneylending_alerts');
+      expect(overdueChannel.name, 'Overdue Alerts');
+      expect(overdueChannel.importance, Importance.defaultImportance);
+
+      // Channel 2: Collection Warnings (moneylending_overshoot, Importance.high)
+      expect(overshootChannel.id, 'moneylending_overshoot');
+      expect(overshootChannel.name, 'Collection Warnings');
+      expect(overshootChannel.importance, Importance.high);
+    });
+
+    test('12. runDailyChecks processes records and respects SharedPreferences throttling', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime(2026, 9, 20);
+
+      final rec = LedgerRecord(
+        id: 'rec-throttle-1',
+        transactionId: 'TXN-THROTTLE-1',
+        type: RecordType.GIVEN,
+        customerId: 'cust-throttle',
+        customerName: 'Alice',
+        startDate: DateTime(2026, 8, 1), // 50 days ago -> overdue
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+      );
+
+      final plugin = _FakeNotificationsPlugin();
+
+      // First run: should execute, post notification on moneylending_alerts and record throttle date
+      await runDailyChecks(
+        records: [rec],
+        rates: [],
+        today: today,
+        plugin: plugin,
+        prefs: prefs,
+      );
+
+      expect(plugin.postedNotifications.length, 1);
+      expect(plugin.postedNotifications.first.channelId, 'moneylending_alerts');
+      expect(plugin.postedNotifications.first.payload, 'overdue');
+      expect(prefs.getString('notif_overdue_date_rec-throttle-1'), today.toIso8601String());
+      expect(prefs.getStringList('notif_overdue_reasons_rec-throttle-1'), contains('noActivity'));
+
+      // Second run same day: should be throttled (no new notification posted)
+      await runDailyChecks(
+        records: [rec],
+        rates: [],
+        today: today,
+        plugin: plugin,
+        prefs: prefs,
+      );
+      expect(plugin.postedNotifications.length, 1);
+    });
+
+    test('13. runDailyChecks groups notifications when >3 distinct customers and separates overshoot channel', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime(2026, 9, 20);
+
+      // Create 4 distinct overdue customers (>3)
+      final records = List.generate(4, (i) {
+        return LedgerRecord(
+          id: 'rec-overdue-$i',
+          transactionId: 'TXN-00$i',
+          type: RecordType.GIVEN,
+          customerId: 'cust-00$i',
+          customerName: 'Customer $i',
+          startDate: DateTime(2026, 8, 1), // 50 days ago -> overdue
+          principalAmount: 10000.0,
+          interestRate: 2.0,
+          status: RecordStatus.ACTIVE,
+        );
+      });
+
+      final plugin = _FakeNotificationsPlugin();
+
+      await runDailyChecks(
+        records: records,
+        rates: [],
+        today: today,
+        plugin: plugin,
+        prefs: prefs,
+      );
+
+      // Distinct customers = 4 (> 3) -> should post 1 grouped summary notification (id: 9999)
+      final overdueNotifs = plugin.postedNotifications.where((n) => n.channelId == 'moneylending_alerts').toList();
+      expect(overdueNotifs.length, 1);
+      expect(overdueNotifs.first.id, 9999);
+      expect(overdueNotifs.first.title, '4 Loans Overdue');
+    });
   });
+}
+
+class _PostedNotification {
+  final int id;
+  final String? title;
+  final String? body;
+  final String? payload;
+  final String channelId;
+
+  _PostedNotification({
+    required this.id,
+    this.title,
+    this.body,
+    this.payload,
+    required this.channelId,
+  });
+}
+
+class _FakeNotificationsPlugin extends Fake implements FlutterLocalNotificationsPlugin {
+  final List<_PostedNotification> postedNotifications = [];
+
+  @override
+  Future<void> show({
+    int id = 0,
+    String? title,
+    String? body,
+    NotificationDetails? notificationDetails,
+    String? payload,
+  }) async {
+    final channelId = notificationDetails?.android?.channelId ?? '';
+    postedNotifications.add(_PostedNotification(
+      id: id,
+      title: title,
+      body: body,
+      payload: payload,
+      channelId: channelId,
+    ));
+  }
 }

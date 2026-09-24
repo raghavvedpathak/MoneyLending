@@ -1,3 +1,5 @@
+import '../../domain/util/money.dart';
+
 /// Returns (interestPaid, principalPaid) for a single payment, allocated
 /// interest-first. A negative paymentAmount is a refund/payback of an
 /// overpayment — see case (5) [FIX-ALLOCATE-NEGATIVE-1].
@@ -23,7 +25,7 @@
     // case (1) payment > outstandingInterest, and case (4) payment ==
     // outstandingInterest exactly — interest fully covered, remainder (possibly
     // zero) goes to principal
-    return (outstandingInterest, paymentAmount - outstandingInterest);
+    return (outstandingInterest, roundMoney(paymentAmount - outstandingInterest));
   }
   // case (2): payment < outstandingInterest — all goes to interest, zero principal
   return (paymentAmount, 0.0);

@@ -49,20 +49,41 @@ void main() {
       expect(result, 'handled: Failed to load');
     });
 
-    test('Direct Loading, Success, Error classes and switch pattern matching (§2.5)', () {
+    test('Direct Loading, Success, UiError classes and switch pattern matching (§2.5)', () {
       const UiState<int> s1 = Loading();
       const UiState<int> s2 = Success(100);
-      const UiState<int> s3 = Error('Network timeout');
+      const UiState<int> s3 = UiError('Network timeout');
 
       String render(UiState<int> state) => switch (state) {
             Loading() => 'spinner',
-            Error(:final message) => 'error: $message',
+            UiError(:final message) => 'error: $message',
             Success(:final data) => 'data: $data',
           };
 
       expect(render(s1), 'spinner');
       expect(render(s2), 'data: 100');
       expect(render(s3), 'error: Network timeout');
+    });
+
+    test('[FIX-UISTATE-NAME-1] Error case is named UiError and matches in switch expression without shadowing dart:core Error', () {
+      const UiState<String> state = UiError('Failed to fetch data');
+
+      expect(state.isError, isTrue);
+      expect(state.errorOrNull, 'Failed to fetch data');
+
+      final rendered = switch (state) {
+        Loading() => 'spinner',
+        UiError(:final message) => 'handled_error: $message',
+        Success(:final data) => 'data: $data',
+      };
+      expect(rendered, 'handled_error: Failed to fetch data');
+
+      // Verify that catching standard dart:core Error works as expected
+      try {
+        throw ArgumentError('Invalid argument');
+      } on Error catch (e) {
+        expect(e, isA<ArgumentError>());
+      }
     });
   });
 }

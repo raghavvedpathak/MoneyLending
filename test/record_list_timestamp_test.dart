@@ -107,12 +107,17 @@ class MockRecordRepository implements RecordRepository {
   Future<void> importRecordsTransactionally(List<LedgerRecord> records) async {}
 
   @override
+  Future<void> deletePayment(String paymentId) async {}
+
+  @override
   Future<void> restoreBackupTransactionally({
     required List<Map<String, dynamic>> customers,
     required List<Map<String, dynamic>> records,
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
     List<Map<String, dynamic>> retiredIds = const [],
+    Map<String, dynamic>? settings,
+    List<Map<String, dynamic>>? itemRates,
   }) async {}
 }
 
@@ -151,6 +156,19 @@ class MockItemRateRepository implements ItemRateRepository {
   @override
   Future<ItemRate?> getCurrentRateOnce(String category) async =>
       rates.where((r) => r.itemCategory == category).firstOrNull;
+
+  @override
+  Future<ItemRate?> getRateAsOf(String category, DateTime date) async {
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    final matching = rates.where((r) {
+      final rDate = DateTime(r.effectiveDate.year, r.effectiveDate.month, r.effectiveDate.day);
+      return r.itemCategory == category &&
+          !rDate.isAfter(dateOnly) &&
+          r.ratePerUnit > 0;
+    }).toList()
+      ..sort((a, b) => b.effectiveDate.compareTo(a.effectiveDate));
+    return matching.firstOrNull;
+  }
 
   @override
   Stream<List<ItemRate>> watchRatesForDate(DateTime date) => _ratesCtrl.stream;
@@ -257,9 +275,9 @@ void main() {
     await sl.reset();
   });
 
-  group('Record List Timestamp Tests ([FIX-TIMESTAMP-RECORDLIST-1])', () {
+  group('Record List Timestamp Tests ([FIX-TIMESTAMP-RECORDLIST-1] revised v1.15)', () {
     testWidgets(
-        'Dashboard record list displays startDate as both date AND time using DateFormat(dd/MM/yyyy, HH:mm)',
+        'Dashboard record list displays transaction date with formatDate(startDate) — e.g. "23 April 2026"',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1.0;
@@ -268,9 +286,8 @@ void main() {
 
       // 23/04/2026 at 14:30
       final specificStartDate = DateTime(2026, 4, 23, 14, 30);
-      final expectedTimestampString =
-          DateFormat('dd/MM/yyyy, HH:mm').format(specificStartDate);
-      expect(expectedTimestampString, equals('23/04/2026, 14:30'));
+      final expectedDateString = formatDate(specificStartDate);
+      expect(expectedDateString, equals('23 April 2026'));
 
       final record = LedgerRecord(
         id: 'rec-test-1',
@@ -300,14 +317,14 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // Verify that the record row displays the exact timestamp '23/04/2026, 14:30'
-      expect(find.textContaining('23/04/2026, 14:30'), findsOneWidget);
+      // Verify that the record row displays '23 April 2026'
+      expect(find.textContaining('23 April 2026'), findsOneWidget);
       expect(find.text('Ramesh Patel'), findsOneWidget);
       expect(find.text('TRAN042601'), findsOneWidget);
     });
 
     testWidgets(
-        'Padded morning time: 05/10/2026 at 09:05 displays 05/10/2026, 09:05 and never date-only',
+        'Morning date: 05/10/2026 at 09:05 displays formatDate(startDate) as "5 October 2026"',
         (tester) async {
       tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1.0;
@@ -315,9 +332,8 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
 
       final morningDate = DateTime(2026, 10, 5, 9, 5);
-      final expectedTimestampString =
-          DateFormat('dd/MM/yyyy, HH:mm').format(morningDate);
-      expect(expectedTimestampString, equals('05/10/2026, 09:05'));
+      final expectedDateString = formatDate(morningDate);
+      expect(expectedDateString, equals('5 October 2026'));
 
       final record = LedgerRecord(
         id: 'rec-test-2',
@@ -347,7 +363,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('05/10/2026, 09:05'), findsOneWidget);
+      expect(find.textContaining('5 October 2026'), findsOneWidget);
       expect(find.text('Suresh Kumar'), findsOneWidget);
       expect(find.text('TRAN102602'), findsOneWidget);
     });

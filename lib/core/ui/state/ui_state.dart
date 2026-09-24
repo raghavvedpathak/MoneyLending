@@ -8,11 +8,11 @@ sealed class UiState<T> {
 
   const factory UiState.loading() = Loading<T>;
   const factory UiState.success(T data) = Success<T>;
-  const factory UiState.error(String message) = Error<T>;
+  const factory UiState.error(String message) = UiError<T>;
 
   bool get isLoading => this is Loading<T>;
   bool get isSuccess => this is Success<T>;
-  bool get isError => this is Error<T>;
+  bool get isError => this is UiError<T>;
 
   T? get dataOrNull => switch (this) {
         Success<T>(:final data) => data,
@@ -20,7 +20,7 @@ sealed class UiState<T> {
       };
 
   String? get errorOrNull => switch (this) {
-        Error<T>(:final message) => message,
+        UiError<T>(:final message) => message,
         _ => null,
       };
 
@@ -32,7 +32,7 @@ sealed class UiState<T> {
     return switch (this) {
       Loading<T>() => loading(),
       Success<T>(:final data) => success(data),
-      Error<T>(:final message) => error(message),
+      UiError<T>(:final message) => error(message),
     };
   }
 
@@ -45,7 +45,7 @@ sealed class UiState<T> {
     return switch (this) {
       Loading<T>() => loading != null ? loading() : orElse(),
       Success<T>(:final data) => success != null ? success(data) : orElse(),
-      Error<T>(:final message) => error != null ? error(message) : orElse(),
+      UiError<T>(:final message) => error != null ? error(message) : orElse(),
     };
   }
 }
@@ -81,10 +81,11 @@ final class Success<T> extends UiState<T> {
   int get hashCode => Object.hash(runtimeType, data);
 }
 
-/// Error state with failure message (§2.5)
-final class Error<T> extends UiState<T> {
+/// Error state with failure message (§2.5 & [FIX-UISTATE-NAME-1])
+/// Named UiError, NOT Error, to avoid shadowing dart:core's Error type.
+final class UiError<T> extends UiState<T> {
   final String message;
-  const Error(this.message);
+  const UiError(this.message);
 
   @override
   String toString() => 'UiState<$T>.error($message)';
@@ -92,13 +93,12 @@ final class Error<T> extends UiState<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Error<T> && runtimeType == other.runtimeType && message == other.message;
+      other is UiError<T> && runtimeType == other.runtimeType && message == other.message;
 
   @override
   int get hashCode => Object.hash(runtimeType, message);
 }
 
-// Backwards-compatible aliases
+// Aliases for compatibility
 typedef UiLoading<T> = Loading<T>;
 typedef UiSuccess<T> = Success<T>;
-typedef UiError<T> = Error<T>;

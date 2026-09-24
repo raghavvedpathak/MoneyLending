@@ -37,9 +37,36 @@ class DatabaseHelper {
 
   DatabaseHelper._init();
 
+  Database? _isolatedDb;
+
+  DatabaseHelper._isolated(Database db) : _isolatedDb = db;
+
   /// Testing constructor for in-memory SQLite isolation.
   DatabaseHelper.forTesting(Database db) {
     _database = db;
+    _isolatedDb = db;
+  }
+
+  /// Opens a dedicated, isolated database connection for background isolates (§4.3 [FIX-BG-DB-1]).
+  ///
+  /// The background isolate running the exact-alarm callback has no ProviderScope and
+  /// cannot read appDatabaseProvider. It opens its own connection to moneylending.db with
+  /// identical PRAGMAs (foreign_keys = ON, journal_mode = WAL, busy_timeout = 5000),
+  /// constructs repositories by hand, reads them, and closes this connection in a finally block.
+  static Future<DatabaseHelper> openIsolated({String filePath = 'moneylending.db'}) async {
+    final rawDb = await instance._openRawDatabase(filePath, singleInstance: false);
+    return DatabaseHelper._isolated(rawDb);
+  }
+
+  /// Closes the database connection (§4.3 [FIX-ARCH-DB-1] & [FIX-BG-DB-1]).
+  Future<void> close() async {
+    if (_isolatedDb != null) {
+      await _isolatedDb!.close();
+      _isolatedDb = null;
+    } else if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
   }
 
   /// Creates all Drift/SQLite tables for testing environments.
@@ -48,6 +75,7 @@ class DatabaseHelper {
   }
 
   Future<Database> get database async {
+    if (_isolatedDb != null) return _isolatedDb!;
     if (_database != null) return _database!;
     _database = await _initDB('moneylending.db');
     return _database!;
@@ -61,6 +89,10 @@ class DatabaseHelper {
   Future<ItemRateDao> get itemRateDao async => ItemRateDao(await database);
 
   Future<Database> _initDB(String filePath) async {
+    return _openRawDatabase(filePath);
+  }
+
+  Future<Database> _openRawDatabase(String filePath, {bool singleInstance = true}) async {
     if (Platform.isWindows) {
       final docDir = await getApplicationDocumentsDirectory();
       final dbPath = p.join(docDir.path, 'MoneyLending', filePath);
@@ -72,6 +104,7 @@ class DatabaseHelper {
         dbPath,
         options: OpenDatabaseOptions(
           version: 1,
+          singleInstance: singleInstance,
           onCreate: _createDB,
           onConfigure: _onConfigure,
         ),
@@ -82,6 +115,7 @@ class DatabaseHelper {
       return await openDatabase(
         path,
         version: 1,
+        singleInstance: singleInstance,
         onCreate: _createDB,
         onConfigure: _onConfigure,
       );
@@ -109,7 +143,7 @@ class DatabaseHelper {
     await db.execute('CREATE UNIQUE INDEX idx_customers_displayId ON customers(displayId)');
 
     // 2. records table
-    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; see §4.2 for full rationale.
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; money is a REAL rounded to 2 decimals with roundMoney(); see §4.2 and Addendum J.1.
     await db.execute('''
       CREATE TABLE records (
         id TEXT PRIMARY KEY,
@@ -132,7 +166,7 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_records_customerId ON records(customerId)');
 
     // 3. ledger_items table
-    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; see §4.2 for full rationale.
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; money is a REAL rounded to 2 decimals with roundMoney(); see §4.2 and Addendum J.1.
     await db.execute('''
       CREATE TABLE ledger_items (
         id TEXT PRIMARY KEY,
@@ -152,7 +186,7 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_ledger_items_recordId ON ledger_items(recordId)');
 
     // 4. payments table
-    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; see §4.2 for full rationale.
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; money is a REAL rounded to 2 decimals with roundMoney(); see §4.2 and Addendum J.1.
     await db.execute('''
       CREATE TABLE payments (
         id TEXT PRIMARY KEY,
@@ -170,7 +204,7 @@ class DatabaseHelper {
     await db.execute("CREATE UNIQUE INDEX idx_payments_paymentId ON payments(paymentId) WHERE paymentId IS NOT NULL AND paymentId != ''");
 
     // 5. settings table (single row, id=1)
-    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; see §4.2 for full rationale.
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; money is a REAL rounded to 2 decimals with roundMoney(); see §4.2 and Addendum J.1.
     await db.execute('''
       CREATE TABLE settings (
         id INTEGER PRIMARY KEY,
@@ -183,6 +217,7 @@ class DatabaseHelper {
     await db.insert('settings', const SettingsEntity().toMap());
 
     // 6. item_rates table
+    // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; money is a REAL rounded to 2 decimals with roundMoney(); see §4.2 and Addendum J.1.
     await db.execute('''
       CREATE TABLE item_rates (
         id TEXT PRIMARY KEY,
@@ -644,11 +679,28 @@ class DatabaseHelper {
     return await db.query('retired_ids');
   }
 
-  /// Transactional all-or-nothing backup restore [FIX-ID-BACKUP-1]:
+  /// Clears all customers, records, items, payments, and empties retired_ids table.
+  /// Mandated by Settings Screen spec (Tab 4):
+  /// "Clear-all-data (with confirmation dialog) — also empties retired_ids;
+  /// every ID sequence restarts at 01 because no data remains"
+  Future<void> clearAllData() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('payments');
+      await txn.delete('ledger_items');
+      await txn.delete('records');
+      await txn.delete('customers');
+      await txn.delete('retired_ids');
+    });
+  }
+
+  /// Transactional all-or-nothing backup restore [FIX-ID-BACKUP-1] & [FIX-BACKUPCONFIG-1]:
   /// Restoring a JSON backup is a replace-all, not a merge. Inside a single db.transaction(),
   /// delete payments, ledger_items, records, customers and retired_ids explicitly
   /// (child tables first — do not lean on the FK cascade), then insert everything from the backup.
-  /// settings and item_rates are not part of the backup and are never touched.
+  /// settings and item_rates are part of the 1.4 backup ([FIX-BACKUPCONFIG-1]): when the file
+  /// carries them they are replaced too (settings row overwritten, item_rates deleted and re-inserted);
+  /// when it does not (1.1–1.3), they are left untouched.
   /// If anything fails, roll the whole transaction back so the device keeps its previous
   /// data, and surface a clear error.
   Future<void> restoreBackupTransactionally({
@@ -657,6 +709,8 @@ class DatabaseHelper {
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
     List<Map<String, dynamic>> retiredIds = const [],
+    Map<String, dynamic>? settings,
+    List<Map<String, dynamic>>? itemRates,
   }) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -667,9 +721,18 @@ class DatabaseHelper {
       await txn.delete('customers');
       await txn.delete('retired_ids');
 
-      // settings and item_rates are NOT touched!
+      // 2. Settings and item_rates replaced only when present in backup [FIX-BACKUPCONFIG-1]
+      if (settings != null) {
+        await txn.insert('settings', settings, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      if (itemRates != null) {
+        await txn.delete('item_rates');
+        for (final r in itemRates) {
+          await txn.insert('item_rates', r, conflictAlgorithm: ConflictAlgorithm.abort);
+        }
+      }
 
-      // 2. Insert everything from backup with abort conflict algorithm
+      // 3. Insert everything from backup with abort conflict algorithm
       for (final c in customers) {
         await txn.insert('customers', c, conflictAlgorithm: ConflictAlgorithm.abort);
       }
@@ -744,6 +807,12 @@ class DatabaseHelper {
     return maps.map((m) => PaymentEntity.fromMap(m)).toList();
   }
 
+  /// Deletes a payment by ID (§4.4 [FIX-PAYMENT-DELETE-1]).
+  Future<int> deletePayment(String id) async {
+    final dao = await paymentDao;
+    return await dao.deleteById(id);
+  }
+
   // ===========================================================================
   // ITEM RATES OPERATIONS (WITH SYNCHRONIZED UPSERT) [FIX-ARCH-ITEMRATE-1]
   // ===========================================================================
@@ -772,6 +841,13 @@ class DatabaseHelper {
   Future<List<ItemRateEntity>> getRatesForDate(String date) async {
     final dao = await itemRateDao;
     return await dao.getRatesForDate(date);
+  }
+
+  /// [FIX-RATE-ASOF-1] (v1.16) Latest USABLE rate (ratePerUnit > 0) for [category] whose
+  /// effectiveDate is on or before [dateOnly]; null when there is none.
+  Future<ItemRateEntity?> getRateAsOf(String category, String dateOnly) async {
+    final dao = await itemRateDao;
+    return await dao.getRateAsOf(category, dateOnly);
   }
 
   // ===========================================================================

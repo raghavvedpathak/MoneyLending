@@ -23,6 +23,7 @@ export 'models/record_payment_total.dart';
 export 'models/record_status.dart';
 export 'models/record_type.dart';
 export 'models/settings.dart';
+export 'models/profit_state.dart';
 export 'repositories/customer_repository.dart';
 export 'repositories/item_rate_repository.dart';
 export 'repositories/record_repository.dart';

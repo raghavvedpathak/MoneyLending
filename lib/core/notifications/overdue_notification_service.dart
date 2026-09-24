@@ -1,31 +1,31 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show DartPluginRegistrant;
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../app/background/daily_check.dart';
+import '../../data/datasources/database_helper.dart';
+import '../../data/repositories/item_rate_repository_impl.dart';
+import '../../data/repositories/record_repository_impl.dart';
 import '../../domain/domain.dart';
 import '../calculations/calculation_engine.dart';
 import '../calculations/util/date_extensions.dart';
 import '../di/injection.dart';
 
-/// Top-level background isolate entry point for AndroidAlarmManager (§8).
+export '../../app/background/daily_check.dart'
+    show dailyOverdueCallback, runDailyChecks, scheduleNextTenAm;
+
+/// Top-level background isolate entry point for AndroidAlarmManager (§8, §4.3 [FIX-BG-DB-1], & [FIX-ALARM-CALLBACK-1]).
 ///
-/// Mandated by AndroidAlarmManager: must be a top-level or static entry-point.
+/// Mandated by AndroidAlarmManager, [FIX-BG-DB-1], & [FIX-ALARM-CALLBACK-1]:
+/// Delegates to [dailyOverdueCallback] in `lib/app/background/daily_check.dart`.
 @pragma('vm:entry-point')
 void overdueAlarmCallback() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await initServiceLocator();
-    final service = sl<OverdueNotificationService>();
-    // 1. Reschedule next day's 10:00 AM alarm immediately
-    await service.scheduleDailyAlarm();
-    // 2. Perform overdue evaluation and post notifications
-    await service.checkAndPostOverdueNotifications();
-  } catch (e, stack) {
-    debugPrint('overdueAlarmCallback failed: $e\n$stack');
-  }
+  await dailyOverdueCallback();
 }
 
 /// Service managing daily 10:00 AM alarms, notification channels, and overdue checks (§8).
@@ -78,6 +78,8 @@ class OverdueNotificationService {
 
   /// Initializes notification channels and plugin listeners during app startup (§8).
   Future<void> initialize() async {
+    if (!Platform.isAndroid) return;
+
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidSettings);
 
@@ -179,6 +181,12 @@ class OverdueNotificationService {
     }
   }
 
+  /// Static convenience helper to schedule or reschedule the next 10:00 AM alarm (§8, [FIX-ALARM-CALLBACK-1]).
+  static Future<void> scheduleNextTenAm([DateTime? now]) async {
+    final scheduler = OverdueNotificationService();
+    await scheduler.scheduleDailyAlarm(nowOverride: now);
+  }
+
   /// Schedules or reschedules the exact daily 10:00 AM alarm (§8).
   ///
   /// Re-verified unconditionally on every app launch for idempotency.
@@ -201,20 +209,25 @@ class OverdueNotificationService {
   /// Evaluates overdue status and posts local notifications.
   ///
   /// Combines:
-  /// 1. Activity-based overdue (>= 30 days gap since last payment or startDate)
+  /// 1. Activity-based overdue (>= 30 days gap since last payment or startDate) [FIX-LASTACTIVITY-1]
   /// 2. Collateral live-rate overdue ([FIX-OVERDUE-COLLATERAL-1] & [FIX-OVERDUE-RATES-1])
-  Future<List<OverdueRecord>> checkAndPostOverdueNotifications({DateTime? todayOverride}) async {
+  /// 3. Filters candidates via shouldNotify() ([FIX-NOTIFY-THROTTLE-1] & Addendum J.8)
+  Future<List<OverdueRecord>> checkAndPostOverdueNotifications({
+    DateTime? todayOverride,
+    List<LedgerRecord>? recordsOverride,
+    List<ItemRate>? ratesOverride,
+    SharedPreferences? prefsOverride,
+  }) async {
     final today = (todayOverride ?? DateTime.now()).dateOnly;
 
-    final records = await _records.getAllActiveRecordsOnce();
+    final records = recordsOverride ?? await _records.getAllActiveRecordsOnce();
     if (records.isEmpty) return [];
 
-    final activityMap = await _records.getActiveRecordLastActivityMap();
-    final rates = await _rates.getCurrentRatesOnce();
+    final rates = ratesOverride ?? await _rates.getCurrentRatesOnce();
 
+    // [FIX-LASTACTIVITY-1] Derives last activity in memory from full records (no extra query)
     final activityOverdue = CalculationEngine.getOverdue(
       records: records,
-      latestPaymentDates: activityMap,
       today: today,
       thresholdDays: 30,
     );
@@ -226,52 +239,58 @@ class OverdueNotificationService {
     );
 
     final merged = CalculationEngine.mergeOverdueRecords(activityOverdue, collateralOverdue);
-    if (merged.isEmpty) return [];
 
-    // Count distinct customer IDs
-    final distinctCustomers = <String, String>{};
-    for (final item in merged) {
-      distinctCustomers[item.record.customerId] = item.record.customerName ?? 'Customer';
+    // [FIX-NOTIFY-THROTTLE-1] (v1.16 & Addendum J.8):
+    // The same record re-notifies only when its set of reasons changes or 7 days have passed.
+    SharedPreferences? prefs = prefsOverride;
+    if (prefs == null) {
+      try {
+        prefs = await SharedPreferences.getInstance();
+      } catch (_) {}
     }
 
-    final isGrouped = shouldGroupNotifications(distinctCustomers.length);
+    final candidatesToNotify = <OverdueRecord>[];
+    for (final item in merged) {
+      final recId = item.record.id;
+      final lastDateStr = prefs?.getString('notif_overdue_date_$recId');
+      final lastReasonsList = prefs?.getStringList('notif_overdue_reasons_$recId');
 
-    if (isGrouped) {
-      // Grouped summary notification
-      const androidDetails = AndroidNotificationDetails(
-        alertsChannelId,
-        alertsChannelName,
-        importance: Importance.defaultImportance,
-        priority: Priority.defaultPriority,
-      );
-      const notificationDetails = NotificationDetails(android: androidDetails);
+      final lastDate = lastDateStr != null ? DateTime.tryParse(lastDateStr) : null;
+      final lastReasons = lastReasonsList != null
+          ? lastReasonsList
+              .map((s) {
+                try {
+                  return OverdueReason.values.byName(s);
+                } catch (_) {
+                  return null;
+                }
+              })
+              .whereType<OverdueReason>()
+              .toSet()
+          : null;
 
-      await _notificationsPlugin.show(
-        id: 9999,
-        title: '${distinctCustomers.length} Loans Overdue',
-        body: 'Tap to review all overdue customer accounts.',
-        notificationDetails: notificationDetails,
-        payload: 'overdue',
-      );
-    } else {
-      // Individual notification per customer
-      for (final entry in distinctCustomers.entries) {
-        final customerId = entry.key;
-        final customerName = entry.value;
+      if (CalculationEngine.shouldNotify(
+        lastNotifiedDate: lastDate,
+        today: today,
+        throttleDays: 7,
+        lastReasons: lastReasons,
+        currentReasons: item.reasons,
+      )) {
+        candidatesToNotify.add(item);
+      }
+    }
 
-        // Customer's highest-risk or most inactive record
-        final customerRecords = merged.where((o) => o.record.customerId == customerId).toList();
-        final primary = customerRecords.first;
+    if (candidatesToNotify.isNotEmpty) {
+      // Count distinct customer IDs among candidates to notify
+      final distinctCustomers = <String, String>{};
+      for (final item in candidatesToNotify) {
+        distinctCustomers[item.record.customerId] = item.record.customerName ?? 'Customer';
+      }
 
-        String reasonText = '';
-        if (primary.reasons.contains(OverdueReason.noActivity)) {
-          reasonText = '${primary.record.transactionId} inactive for ${primary.daysSinceActivity} days';
-        } else if (primary.reasons.contains(OverdueReason.collateralBreachedNow)) {
-          reasonText = '${primary.record.transactionId} collateral value dropped below balance';
-        } else if (primary.reasons.contains(OverdueReason.collateralProjected2Months)) {
-          reasonText = '${primary.record.transactionId} collateral projected breach in 2 months';
-        }
+      final isGrouped = shouldGroupNotifications(distinctCustomers.length);
 
+      if (isGrouped) {
+        // Grouped summary notification
         const androidDetails = AndroidNotificationDetails(
           alertsChannelId,
           alertsChannelName,
@@ -281,15 +300,166 @@ class OverdueNotificationService {
         const notificationDetails = NotificationDetails(android: androidDetails);
 
         await _notificationsPlugin.show(
-          id: customerId.hashCode,
-          title: 'Overdue Loan: $customerName',
-          body: reasonText,
+          id: 9999,
+          title: '${distinctCustomers.length} Loans Overdue',
+          body: 'Tap to review all overdue customer accounts.',
           notificationDetails: notificationDetails,
           payload: 'overdue',
         );
+      } else {
+        // Individual notification per customer
+        for (final entry in distinctCustomers.entries) {
+          final customerId = entry.key;
+          final customerName = entry.value;
+
+          // Customer's highest-risk or most inactive record
+          final customerRecords = candidatesToNotify.where((o) => o.record.customerId == customerId).toList();
+          final primary = customerRecords.first;
+
+          String reasonText = '';
+          if (primary.reasons.contains(OverdueReason.noActivity)) {
+            reasonText = '${primary.record.transactionId} inactive for ${primary.daysSinceActivity} days';
+          } else if (primary.reasons.contains(OverdueReason.collateralBreachedNow)) {
+            reasonText = '${primary.record.transactionId} collateral value dropped below balance';
+          } else if (primary.reasons.contains(OverdueReason.collateralProjected2Months)) {
+            reasonText = '${primary.record.transactionId} collateral projected breach in 2 months';
+          }
+
+          const androidDetails = AndroidNotificationDetails(
+            alertsChannelId,
+            alertsChannelName,
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          );
+          const notificationDetails = NotificationDetails(android: androidDetails);
+
+          await _notificationsPlugin.show(
+            id: customerId.hashCode,
+            title: 'Overdue Loan: $customerName',
+            body: reasonText,
+            notificationDetails: notificationDetails,
+            payload: 'overdue',
+          );
+        }
+      }
+
+      // Record throttle timestamp and reasons for all notified records
+      if (prefs != null) {
+        for (final item in candidatesToNotify) {
+          await prefs.setString('notif_overdue_date_${item.record.id}', today.toIso8601String());
+          await prefs.setStringList(
+            'notif_overdue_reasons_${item.record.id}',
+            item.reasons.map((r) => r.name).toList(),
+          );
+        }
       }
     }
 
+    // Daily push notification for overshoot (§5.4 & §8 Step 11):
+    // After the existing 30-day overdue check, call computeRecordRisks() (same function,
+    // same getAllActiveRecordsOnce() snapshot) and notify for every risk with overshoot == true.
+    // Post a separate flutter_local_notifications notification per affected customer on channel
+    // moneylending_overshoot. Tapping navigates to Dashboard Collection Alert Section.
+    await checkAndPostOvershootNotifications(
+      records: records,
+      rates: rates,
+      today: today,
+      prefsOverride: prefs,
+    );
+
     return merged;
+  }
+
+  /// Evaluates 2-month projected overshoot and posts high-priority notifications
+  /// on channel [overshootChannelId] ('moneylending_overshoot') (§5.4 & [FIX-FEAT-OVERSHOOT-1]).
+  Future<List<RecordRisk>> checkAndPostOvershootNotifications({
+    List<LedgerRecord>? records,
+    List<ItemRate>? rates,
+    DateTime? today,
+    SharedPreferences? prefsOverride,
+  }) async {
+    final effectiveToday = (today ?? DateTime.now()).dateOnly;
+    final effectiveRecords = records ?? await _records.getAllActiveRecordsOnce();
+    if (effectiveRecords.isEmpty) return [];
+
+    final effectiveRates = rates ?? await _rates.getCurrentRatesOnce();
+
+    final risks = CalculationEngine.computeRecordRisks(
+      records: effectiveRecords,
+      rates: effectiveRates,
+      today: effectiveToday,
+    );
+
+    final overshootRisks = risks.where((r) => r.overshoot).toList();
+    if (overshootRisks.isEmpty) return [];
+
+    SharedPreferences? prefs = prefsOverride;
+    if (prefs == null) {
+      try {
+        prefs = await SharedPreferences.getInstance();
+      } catch (_) {}
+    }
+
+    // Filter candidates through shouldNotify() with 7-day throttle
+    final candidatesToNotify = <RecordRisk>[];
+    for (final r in overshootRisks) {
+      final recId = r.record.id;
+      final lastDateStr = prefs?.getString('notif_overshoot_date_$recId');
+      final lastDate = lastDateStr != null ? DateTime.tryParse(lastDateStr) : null;
+
+      if (CalculationEngine.shouldNotify(
+        lastNotifiedDate: lastDate,
+        today: effectiveToday,
+        throttleDays: 7,
+      )) {
+        candidatesToNotify.add(r);
+      }
+    }
+
+    if (candidatesToNotify.isNotEmpty) {
+      // Group by customer ID so each affected customer receives a distinct notification
+      final customerRisks = <String, List<RecordRisk>>{};
+      for (final r in candidatesToNotify) {
+        customerRisks.putIfAbsent(r.record.customerId, () => []).add(r);
+      }
+
+      for (final entry in customerRisks.entries) {
+        final customerId = entry.key;
+        final custRisks = entry.value;
+        final primary = custRisks.first;
+        final customerName = primary.record.customerName ?? 'Customer';
+
+        const androidDetails = AndroidNotificationDetails(
+          overshootChannelId,
+          overshootChannelName,
+          importance: Importance.high,
+          priority: Priority.high,
+        );
+        const notificationDetails = NotificationDetails(android: androidDetails);
+
+        final String body;
+        if (custRisks.length == 1) {
+          body = '${primary.record.transactionId} projected balance will exceed collateral in 2 months';
+        } else {
+          body = '${custRisks.length} loans projected to exceed collateral in 2 months';
+        }
+
+        await _notificationsPlugin.show(
+          id: (customerId.hashCode ^ 0x0FE5) & 0x7FFFFFFF,
+          title: 'Collection Warning: $customerName',
+          body: body,
+          notificationDetails: notificationDetails,
+          payload: 'collection_alerts',
+        );
+      }
+
+      if (prefs != null) {
+        for (final r in candidatesToNotify) {
+          await prefs.setString('notif_overshoot_date_${r.record.id}', effectiveToday.toIso8601String());
+        }
+      }
+    }
+
+    return overshootRisks;
   }
 }

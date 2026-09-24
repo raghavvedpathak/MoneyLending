@@ -108,16 +108,25 @@ final GoRouter appRouter = GoRouter(
     ),
 
     GoRoute(
+      path: '/customer/:customerId',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (BuildContext context, GoRouterState state) {
+        final customerId = state.pathParameters['customerId'] ?? '';
+        return CustomerDetailScreen(customerId: customerId);
+      },
+    ),
+
+    GoRoute(
       path: '/record/:recordId',
       parentNavigatorKey: rootNavigatorKey,
       builder: (BuildContext context, GoRouterState state) {
         final extra = state.extra;
-        if (extra is RecordDetailRoute && extra.record != null) {
-          return LoanDetailsScreen(record: extra.record!);
-        }
-        return const SizedBox.shrink();
+        final recordId = state.pathParameters['recordId'] ?? '';
+        final record = extra is RecordDetailRoute ? extra.record : null;
+        return RecordDetailScreen(recordId: recordId, record: record);
       },
     ),
+
 
     GoRoute(
       path: '/payment/add/:recordId',

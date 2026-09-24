@@ -19,6 +19,13 @@ abstract class ItemRateRepository {
   /// in §8/Step 4). computeCollateralOverdue() calls this, never watchCurrentRates().
   Future<List<ItemRate>> getCurrentRatesOnce();
 
+  /// [FIX-RATE-ASOF-1] (v1.16) Latest USABLE rate (ratePerUnit > 0) for [category] whose
+  /// effectiveDate is on or before [date] (date-only); null when there is none. Used to
+  /// auto-fill the item rate of a backdated record.
+  /// SELECT * FROM item_rates WHERE item_category = ? AND effective_date <= ?
+  /// AND rate_per_unit > 0 ORDER BY effective_date DESC LIMIT 1
+  Future<ItemRate?> getRateAsOf(String category, DateTime date);
+
   /// All rates for a given ISO date — used for historical lookups.
   Stream<List<ItemRate>> watchRatesForDate(DateTime date);
 

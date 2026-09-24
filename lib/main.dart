@@ -24,10 +24,12 @@ void main() async {
   await notificationService.initialize();
   await notificationService.scheduleDailyAlarm();
 
-  // Listen to notification deep-links
+  // Listen to notification deep-links (§5.4 & §8)
   OverdueNotificationService.deepLinkStream.listen((payload) {
     if (payload == 'overdue') {
       appRouter.go('/overdue');
+    } else if (payload == 'collection_alerts' || payload == 'overshoot') {
+      appRouter.go('/dashboard');
     }
   });
 

@@ -25,6 +25,8 @@ class LedgerItemEntity {
   final double? itemValue;
   final double? lendPercentage;
   final double? lendableAmount;
+  // [FIX-ITEM-CUSTODY-2] sourceItemId: self-referential FK, null unless copied via custody chain
+  final String? sourceItemId;
 
   const LedgerItemEntity({
     required this.id,
@@ -38,10 +40,11 @@ class LedgerItemEntity {
     this.itemValue,
     this.lendPercentage,
     this.lendableAmount,
+    this.sourceItemId,
   });
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'id': id,
       'recordId': recordId,
       'name': name,
@@ -54,6 +57,10 @@ class LedgerItemEntity {
       'lendPercentage': lendPercentage,
       'lendableAmount': lendableAmount,
     };
+    if (sourceItemId != null) {
+      map['sourceItemId'] = sourceItemId;
+    }
+    return map;
   }
 
   factory LedgerItemEntity.fromMap(Map<String, dynamic> map) {
@@ -69,6 +76,37 @@ class LedgerItemEntity {
       itemValue: (map['itemValue'] as num?)?.toDouble(),
       lendPercentage: (map['lendPercentage'] as num?)?.toDouble(),
       lendableAmount: (map['lendableAmount'] as num?)?.toDouble(),
+      sourceItemId: map['sourceItemId'] as String?,
+    );
+  }
+
+  LedgerItemEntity copyWith({
+    String? id,
+    String? recordId,
+    String? name,
+    String? itemCategory,
+    String? description,
+    double? weight,
+    double? purity,
+    double? rate,
+    double? itemValue,
+    double? lendPercentage,
+    double? lendableAmount,
+    String? sourceItemId,
+  }) {
+    return LedgerItemEntity(
+      id: id ?? this.id,
+      recordId: recordId ?? this.recordId,
+      name: name ?? this.name,
+      itemCategory: itemCategory ?? this.itemCategory,
+      description: description ?? this.description,
+      weight: weight ?? this.weight,
+      purity: purity ?? this.purity,
+      rate: rate ?? this.rate,
+      itemValue: itemValue ?? this.itemValue,
+      lendPercentage: lendPercentage ?? this.lendPercentage,
+      lendableAmount: lendableAmount ?? this.lendableAmount,
+      sourceItemId: sourceItemId ?? this.sourceItemId,
     );
   }
 }

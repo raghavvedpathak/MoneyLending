@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:sqflite/sqflite.dart';
 import '../../core/calculations/util/date_extensions.dart';
 import '../../core/utils/app_date_formatter.dart';
 import '../../domain/errors/customer_has_records_exception.dart';
@@ -101,8 +102,29 @@ class CustomerRepositoryImpl implements CustomerRepository {
       if (count > 0) {
         throw CustomerHasRecordsException(customerId: id, recordCount: count);
       }
+
+      // Retire customer displayId so it is never reissued (Addendum G, FIX-ID-REUSE-1)
+      final custMaps = await txn.query('customers', where: 'id = ?', whereArgs: [id]);
+      if (custMaps.isNotEmpty) {
+        final displayId = custMaps.first['displayId'] as String?;
+        if (displayId != null && displayId.isNotEmpty) {
+          try {
+            await txn.insert(
+              'retired_ids',
+              {
+                'kind': 'customer',
+                'displayId': displayId,
+                'retiredAt': DateTime.now().toIso8601String(),
+              },
+              conflictAlgorithm: ConflictAlgorithm.ignore,
+            );
+          } catch (_) {}
+        }
+      }
+
       await txn.delete('customers', where: 'id = ?', whereArgs: [id]);
     });
     await _refreshStream();
   }
 }
+

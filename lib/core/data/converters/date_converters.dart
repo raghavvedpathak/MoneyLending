@@ -1,16 +1,8 @@
-// lib/core/data/converters/date_converters.dart
-// Mandated by [FIX-TIMESTAMP-TYPECONVERTERS-1] (rewritten v1.14)
+import 'package:drift/drift.dart';
 
 String _p2(int n) => n.toString().padLeft(2, '0');
 String _ymd(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${_p2(d.month)}-${_p2(d.day)}';
-
-/// Generic type converter contract.
-abstract class TypeConverter<D, S> {
-  const TypeConverter();
-  D fromSql(S fromDb);
-  S toSql(D value);
-}
 
 /// "date-only" columns: endDate, settledDate, createdAt, effectiveDate.
 /// SQL form 'YYYY-MM-DD'. Domain form: DateTime at LOCAL midnight.

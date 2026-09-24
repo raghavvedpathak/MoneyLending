@@ -296,13 +296,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   List<LedgerRecord> _filterRecords(List<LedgerRecord> records, String query) {
-    if (query.isEmpty) return records;
-    return records.where((r) {
-      final nameMatch = (r.customerName ?? '').toLowerCase().contains(query);
-      final txnMatch = r.transactionId.toLowerCase().contains(query);
-      final idMatch = r.customerId.toLowerCase().contains(query);
-      return nameMatch || txnMatch || idMatch;
-    }).toList();
+    final list = query.isEmpty
+        ? List<LedgerRecord>.from(records)
+        : records.where((r) {
+            final nameMatch = (r.customerName ?? '').toLowerCase().contains(query);
+            final txnMatch = r.transactionId.toLowerCase().contains(query);
+            final idMatch = r.customerId.toLowerCase().contains(query);
+            return nameMatch || txnMatch || idMatch;
+          }).toList();
+    // [FIX-TIMESTAMP-RECORDLIST-1] (revised v1.15) Rows are ordered by startDate descending
+    // (date, then time-of-day), so a backdated record sits at its real position in time.
+    list.sort((a, b) => b.startDate.compareTo(a.startDate));
+    return list;
   }
 
   Widget _buildSummaryCards({
@@ -344,10 +349,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  /// Record Row with [FIX-TIMESTAMP-RECORDLIST-1]
-  /// MUST display startDate as both date AND time using DateFormat('dd/MM/yyyy, HH:mm')
+  /// Record Row with [FIX-TIMESTAMP-RECORDLIST-1] (revised v1.15)
+  /// Each record row shows its transaction date with formatDate(startDate) — e.g. "20 September 2026"
   Widget _buildRecordRow(LedgerRecord record) {
-    final formattedDateTime = DateFormat('dd/MM/yyyy, HH:mm').format(record.startDate);
+    final formattedDate = formatDate(record.startDate);
     final todayDate = DateTime.now().dateOnly;
     final financials = calculateRecordFinancials(record, todayDate);
 
@@ -399,13 +404,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // [FIX-TIMESTAMP-RECORDLIST-1] Exact moment money was given or taken
+              // [FIX-TIMESTAMP-RECORDLIST-1] (revised v1.15) Transaction date via formatDate(startDate)
               Row(
                 children: [
-                  const Icon(Icons.access_time_rounded, size: 14, color: AppTheme.textMuted),
+                  const Icon(Icons.calendar_today_outlined, size: 14, color: AppTheme.textMuted),
                   const SizedBox(width: 4),
                   Text(
-                    formattedDateTime,
+                    formattedDate,
                     style: const TextStyle(
                       fontSize: 12,
                       color: AppTheme.textSecondary,

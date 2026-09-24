@@ -163,3 +163,30 @@ class AppNavigator {
     Navigator.of(context).pop(result);
   }
 }
+
+/// Typed navigation extensions over BuildContext mandated by §2.4.
+/// Feature widgets call context.goRoute(const CustomerDetailRoute(id)) or
+/// context.goCustomerDetail(id) — never raw string literals.
+extension AppRouteNavigationExtension on BuildContext {
+  void goRoute(AppRoute route, {Object? extra}) {
+    go(route.path, extra: extra);
+  }
+
+  Future<T?> pushRoute<T extends Object?>(AppRoute route, {Object? extra}) {
+    return push<T>(route.path, extra: extra);
+  }
+
+  void goCustomerDetail(String customerId) =>
+      go(CustomerDetailRoute(customerId).path);
+
+  Future<T?> pushCustomerDetail<T extends Object?>(String customerId) =>
+      push<T>(CustomerDetailRoute(customerId).path);
+
+  void goRecordDetail(String recordId, {LedgerRecord? record}) =>
+      go(RecordDetailRoute(recordId, record: record).path,
+          extra: RecordDetailRoute(recordId, record: record));
+
+  Future<T?> pushRecordDetail<T extends Object?>(String recordId, {LedgerRecord? record}) =>
+      push<T>(RecordDetailRoute(recordId, record: record).path,
+          extra: RecordDetailRoute(recordId, record: record));
+}

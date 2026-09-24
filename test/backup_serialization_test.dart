@@ -544,5 +544,145 @@ void main() {
         expect(restored.retiredIds.first.displayId, equals('TRAN092600'));
       });
     });
+
+    // -------------------------------------------------------------------------
+    // 7. [FIX-BACKUP-CONFIG-1] (v1.16) Settings & ItemRates Config Round-Trip
+    // -------------------------------------------------------------------------
+    group('[FIX-BACKUP-CONFIG-1] (v1.16) Settings & ItemRates in BackupWrapper', () {
+      test('Export always writes both settings and itemRates', () {
+        const settings = Settings(
+          name: 'Shree Ganesh Finance',
+          phone: '9876543210',
+          address: '42 Market Street',
+          defaultInterestRate: 2.5,
+        );
+
+        final itemRate = ItemRate(
+          id: 'rate-1',
+          itemCategory: 'Gold 22K',
+          ratePerUnit: 6543.21,
+          effectiveDate: DateTime(2026, 9, 20),
+          updatedAt: DateTime(2026, 9, 20, 9, 0),
+        );
+
+        final wrapper = BackupSerializer.fromDomain(
+          customers: [],
+          records: [],
+          settings: settings,
+          itemRates: [itemRate],
+        );
+
+        expect(wrapper.settings, isNotNull);
+        expect(wrapper.settings!.name, equals('Shree Ganesh Finance'));
+        expect(wrapper.settings!.defaultInterestRate, equals(2.5));
+
+        expect(wrapper.itemRates, isNotNull);
+        expect(wrapper.itemRates!.length, equals(1));
+        expect(wrapper.itemRates!.first.itemCategory, equals('Gold 22K'));
+        expect(wrapper.itemRates!.first.ratePerUnit, equals(6543.21));
+
+        final jsonStr = BackupSerializer.encode(wrapper);
+        expect(jsonStr, contains('"settings":{'));
+        expect(jsonStr, contains('"name":"Shree Ganesh Finance"'));
+        expect(jsonStr, contains('"itemRates":[{'));
+        expect(jsonStr, contains('"itemCategory":"Gold 22K"'));
+        expect(jsonStr, contains('"ratePerUnit":6543.21'));
+      });
+
+      test('Absent vs empty rules: missing keys yield null, empty array yields empty list', () {
+        // Missing keys (e.g. v1.1 - v1.3 backup)
+        final jsonMissing = jsonEncode({
+          'version': '1.3',
+          'customers': [],
+          'records': [],
+        });
+
+        final decodedMissing = BackupSerializer.decode(jsonMissing);
+        expect(decodedMissing.settings, isNull, reason: 'missing key must be null ("leave device value alone")');
+        expect(decodedMissing.itemRates, isNull, reason: 'missing key must be null ("leave device value alone")');
+
+        final toDomainMissing = BackupSerializer.toDomain(decodedMissing);
+        expect(toDomainMissing.settings, isNull);
+        expect(toDomainMissing.itemRates, isNull);
+
+        // Explicit empty array (meaning "replace with empty")
+        final jsonEmptyRates = jsonEncode({
+          'version': '1.4',
+          'customers': [],
+          'records': [],
+          'settings': {
+            'name': 'Test Shop',
+            'phone': '1234567890',
+            'address': 'Test City',
+            'defaultInterestRate': 1.75,
+          },
+          'itemRates': [],
+        });
+
+        final decodedEmpty = BackupSerializer.decode(jsonEmptyRates);
+        expect(decodedEmpty.settings, isNotNull);
+        expect(decodedEmpty.settings!.name, equals('Test Shop'));
+        expect(decodedEmpty.itemRates, isNotNull);
+        expect(decodedEmpty.itemRates!.isEmpty, isTrue, reason: 'present empty list means replace with empty');
+
+        final toDomainEmpty = BackupSerializer.toDomain(decodedEmpty);
+        expect(toDomainEmpty.settings, isNotNull);
+        expect(toDomainEmpty.settings!.name, equals('Test Shop'));
+        expect(toDomainEmpty.itemRates, isNotNull);
+        expect(toDomainEmpty.itemRates!.isEmpty, isTrue);
+      });
+
+      test('Full round-trip preservation of settings and itemRates', () {
+        const settings = Settings(
+          name: 'Balaji Pawn Brokers',
+          phone: '9845012345',
+          address: 'Station Road, Pune',
+          defaultInterestRate: 2.25,
+        );
+
+        final rates = [
+          ItemRate(
+            id: 'rate-gold',
+            itemCategory: 'GOLD_22K',
+            ratePerUnit: 6800.0,
+            effectiveDate: DateTime(2026, 9, 21),
+            updatedAt: DateTime(2026, 9, 21, 10, 30),
+          ),
+          ItemRate(
+            id: 'rate-silver',
+            itemCategory: 'SILVER',
+            ratePerUnit: 85.0,
+            effectiveDate: DateTime(2026, 9, 21),
+            updatedAt: DateTime(2026, 9, 21, 10, 30),
+          ),
+        ];
+
+        final wrapper = BackupSerializer.fromDomain(
+          customers: [],
+          records: [],
+          settings: settings,
+          itemRates: rates,
+        );
+
+        final jsonString = BackupSerializer.encode(wrapper);
+        final decoded = BackupSerializer.decode(jsonString);
+        final restored = BackupSerializer.toDomain(decoded);
+
+        expect(restored.settings, isNotNull);
+        expect(restored.settings!.name, equals('Balaji Pawn Brokers'));
+        expect(restored.settings!.phone, equals('9845012345'));
+        expect(restored.settings!.address, equals('Station Road, Pune'));
+        expect(restored.settings!.defaultInterestRate, equals(2.25));
+
+        expect(restored.itemRates, isNotNull);
+        expect(restored.itemRates!.length, equals(2));
+        expect(restored.itemRates![0].id, equals('rate-gold'));
+        expect(restored.itemRates![0].itemCategory, equals('GOLD_22K'));
+        expect(restored.itemRates![0].ratePerUnit, equals(6800.0));
+        expect(restored.itemRates![1].id, equals('rate-silver'));
+        expect(restored.itemRates![1].itemCategory, equals('SILVER'));
+        expect(restored.itemRates![1].ratePerUnit, equals(85.0));
+      });
+    });
   });
 }

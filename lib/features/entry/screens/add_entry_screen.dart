@@ -55,7 +55,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
       final settingsRepo = sl<SettingsRepository>();
 
       final customers = await customerRepo.getAllCustomers().first;
-      final settings = await settingsRepo.getSettingsOnce();
+      final settings = await settingsRepo.watchSettings().first;
 
       if (mounted) {
         setState(() {

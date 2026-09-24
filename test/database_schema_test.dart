@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_lending/core/data/schema/drift_tables.dart' as schema;
 import 'package:money_lending/data/data.dart';
+import 'package:money_lending/domain/domain.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -339,4 +341,94 @@ void main() {
       );
     });
   });
+
+  group('Drift DSL Table Mapping Verification (§4.1)', () {
+    test('Drift table instances expose correct table names matching §4.1', () {
+      final customers = schema.Customers();
+      expect(customers.tableName, 'customers');
+
+      final records = schema.Records();
+      expect(records.tableName, 'records');
+
+      final ledgerItems = schema.LedgerItems();
+      expect(ledgerItems.tableName, 'ledger_items');
+
+      final payments = schema.Payments();
+      expect(payments.tableName, 'payments');
+
+      final settings = schema.Settings();
+      expect(settings.tableName, 'settings');
+
+      final itemRates = schema.ItemRates();
+      expect(itemRates.tableName, 'item_rates');
+
+      final retiredIds = schema.RetiredIds();
+      expect(retiredIds.tableName, 'retired_ids');
+    });
+
+    test('LedgerItemEntity sourceItemId & copyWith serialization [FIX-ITEM-CUSTODY-2]', () {
+      const entity = LedgerItemEntity(
+        id: 'item-custody-1',
+        recordId: 'rec-1',
+        name: 'Gold Necklace',
+        itemCategory: 'Gold 22K',
+        description: '22K hallmark',
+        weight: 15.0,
+        purity: 91.6,
+        rate: 7000.0,
+        itemValue: 96180.0,
+        lendPercentage: 75.0,
+        lendableAmount: 72135.0,
+        sourceItemId: 'original-item-0',
+      );
+
+      expect(entity.sourceItemId, 'original-item-0');
+      final map = entity.toMap();
+      expect(map['sourceItemId'], 'original-item-0');
+
+      final fromMap = LedgerItemEntity.fromMap(map);
+      expect(fromMap.sourceItemId, 'original-item-0');
+
+      final copied = entity.copyWith(sourceItemId: 'updated-source-item');
+      expect(copied.sourceItemId, 'updated-source-item');
+      expect(copied.name, 'Gold Necklace');
+    });
+
+    test('RecordRepositoryImpl toFullRecord preserves paymentId and sourceItemId', () {
+      final repo = RecordRepositoryImpl();
+      const recEntity = RecordEntity(
+        id: 'rec-repo-1',
+        transactionId: 'TRAN092601',
+        type: 'GIVEN',
+        customerId: 'cust-1',
+        startDate: '2026-09-20T10:00:00',
+        principalAmount: 50000.0,
+        interestRate: 2.0,
+        status: 'ACTIVE',
+      );
+
+      const itemEntity = LedgerItemEntity(
+        id: 'item-repo-1',
+        recordId: 'rec-repo-1',
+        name: 'Gold Ring',
+        itemCategory: 'Gold 22K',
+        sourceItemId: 'source-item-xyz',
+      );
+
+      const paymentEntity = PaymentEntity(
+        id: 'pay-repo-1',
+        recordId: 'rec-repo-1',
+        amount: 2000.0,
+        date: '2026-09-21T12:00:00',
+        interestPaid: 1000.0,
+        principalPaid: 1000.0,
+        paymentId: 'PAY092601',
+      );
+
+      final fullRecord = repo.toFullRecord(recEntity, [itemEntity], [paymentEntity]);
+      expect(fullRecord.items.first.sourceItemId, 'source-item-xyz');
+      expect(fullRecord.payments.first.paymentId, 'PAY092601');
+    });
+  });
 }
+

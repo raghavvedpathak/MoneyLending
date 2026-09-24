@@ -79,6 +79,14 @@ class ItemRateRepositoryImpl implements ItemRateRepository {
   }
 
   @override
+  Future<ItemRate?> getRateAsOf(String category, DateTime date) async {
+    final isoDate = AppDateFormatter.toIsoDate(date.dateOnly);
+    final entity = await _dbHelper.getRateAsOf(category, isoDate);
+    if (entity == null) return null;
+    return _toDomain(entity);
+  }
+
+  @override
   Stream<List<ItemRate>> getRatesForDate(String date) async* {
     yield await getRatesForDateOnce(date);
     yield* _ratesStreamController.stream.asyncMap((_) async {

@@ -303,5 +303,88 @@ void main() {
       expect(current!.id, 'fixed-uuid-12345', reason: 'Existing UUID id must be preserved across upserts');
       expect(current.ratePerUnit, 550.0);
     });
+
+    test('getRateAsOf returns latest usable rate on or before target date [FIX-RATE-ASOF-1]', () async {
+      // Historical rate on 2026-09-01
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'gold-sep01',
+        itemCategory: 'GOLD_22K',
+        ratePerUnit: 6000.0,
+        effectiveDate: DateTime(2026, 9, 1),
+        updatedAt: DateTime(2026, 9, 1, 10, 0),
+      ));
+
+      // Intermediate rate on 2026-09-10
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'gold-sep10',
+        itemCategory: 'GOLD_22K',
+        ratePerUnit: 6200.0,
+        effectiveDate: DateTime(2026, 9, 10),
+        updatedAt: DateTime(2026, 9, 10, 10, 0),
+      ));
+
+      // Later rate on 2026-09-20
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'gold-sep20',
+        itemCategory: 'GOLD_22K',
+        ratePerUnit: 6500.0,
+        effectiveDate: DateTime(2026, 9, 20),
+        updatedAt: DateTime(2026, 9, 20, 10, 0),
+      ));
+
+      // Query as of 2026-09-15: should pick 2026-09-10 (6200.0)
+      final rateAsOf15 = await itemRateRepo.getRateAsOf('GOLD_22K', DateTime(2026, 9, 15, 14, 30));
+      expect(rateAsOf15, isNotNull);
+      expect(rateAsOf15!.ratePerUnit, 6200.0);
+      expect(rateAsOf15.effectiveDate, DateTime(2026, 9, 10));
+
+      // Query as of exact date 2026-09-10: should match 2026-09-10 (6200.0)
+      final rateAsOf10 = await itemRateRepo.getRateAsOf('GOLD_22K', DateTime(2026, 9, 10));
+      expect(rateAsOf10, isNotNull);
+      expect(rateAsOf10!.ratePerUnit, 6200.0);
+
+      // Query as of before earliest date (2026-08-31): should be null
+      final rateBefore = await itemRateRepo.getRateAsOf('GOLD_22K', DateTime(2026, 8, 31));
+      expect(rateBefore, isNull);
+
+      // Query for non-existent category: should be null
+      final nonExistent = await itemRateRepo.getRateAsOf('PLATINUM', DateTime(2026, 9, 15));
+      expect(nonExistent, isNull);
+    });
+
+    test('getRateAsOf ignores rates with ratePerUnit <= 0 [FIX-RATE-ASOF-1]', () async {
+      // Valid earlier rate
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'silver-valid',
+        itemCategory: 'SILVER',
+        ratePerUnit: 80.0,
+        effectiveDate: DateTime(2026, 9, 1),
+        updatedAt: DateTime(2026, 9, 1, 10, 0),
+      ));
+
+      // Zero-rate entry on 2026-09-05 (e.g. rate unset / invalid)
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'silver-zero',
+        itemCategory: 'SILVER',
+        ratePerUnit: 0.0,
+        effectiveDate: DateTime(2026, 9, 5),
+        updatedAt: DateTime(2026, 9, 5, 10, 0),
+      ));
+
+      // Negative-rate entry on 2026-09-08
+      await itemRateRepo.upsertRate(ItemRate(
+        id: 'silver-negative',
+        itemCategory: 'SILVER',
+        ratePerUnit: -10.0,
+        effectiveDate: DateTime(2026, 9, 8),
+        updatedAt: DateTime(2026, 9, 8, 10, 0),
+      ));
+
+      // Query as of 2026-09-09: should skip 0 and negative rates and return the 80.0 rate from 2026-09-01
+      final rate = await itemRateRepo.getRateAsOf('SILVER', DateTime(2026, 9, 9));
+      expect(rate, isNotNull);
+      expect(rate!.ratePerUnit, 80.0);
+      expect(rate.effectiveDate, DateTime(2026, 9, 1));
+    });
   });
 }
