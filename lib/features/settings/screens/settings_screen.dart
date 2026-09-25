@@ -37,26 +37,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettingsAndRates() async {
-    final settings = await _settingsRepository.getSettingsOnce();
-    final goldRate = await _itemRateRepository.getCurrentRateOnce('GOLD');
-    final silverRate = await _itemRateRepository.getCurrentRateOnce('SILVER');
+    try {
+      final settings = await _settingsRepository.getSettingsOnce();
+      final goldRate = await _itemRateRepository.getCurrentRateOnce('GOLD');
+      final silverRate = await _itemRateRepository.getCurrentRateOnce('SILVER');
 
-    if (mounted) {
-      setState(() {
-        _shopNameController.text = settings.name;
-        _phoneController.text = settings.phone;
-        _addressController.text = settings.address;
-        _defaultRateController.text = settings.defaultInterestRate.toStringAsFixed(1);
+      if (mounted) {
+        setState(() {
+          _shopNameController.text = settings.name;
+          _phoneController.text = settings.phone;
+          _addressController.text = settings.address;
+          _defaultRateController.text = settings.defaultInterestRate.toStringAsFixed(1);
 
-        if (goldRate != null) {
-          _goldRateController.text = goldRate.ratePerUnit.toStringAsFixed(0);
-        }
-        if (silverRate != null) {
-          _silverRateController.text = silverRate.ratePerUnit.toStringAsFixed(0);
-        }
-
-        _isLoading = false;
-      });
+          if (goldRate != null) {
+            _goldRateController.text = goldRate.ratePerUnit.toStringAsFixed(0);
+          }
+          if (silverRate != null) {
+            _silverRateController.text = silverRate.ratePerUnit.toStringAsFixed(0);
+          }
+        });
+      }
+    } catch (e, stack) {
+      debugPrint('Error loading settings and rates: $e\n$stack');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

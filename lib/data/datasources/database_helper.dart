@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart' show databaseFactorySqflitePlugin;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:synchronized/synchronized.dart';
 
@@ -110,6 +111,11 @@ class DatabaseHelper {
         ),
       );
     } else {
+      try {
+        databaseFactory;
+      } catch (_) {
+        databaseFactory = databaseFactorySqflitePlugin;
+      }
       final dbFolder = await getDatabasesPath();
       final path = p.join(dbFolder, filePath);
       return await openDatabase(
@@ -123,9 +129,19 @@ class DatabaseHelper {
   }
 
   Future<void> _onConfigure(Database db) async {
-    await db.execute('PRAGMA foreign_keys = ON');
-    await db.execute('PRAGMA journal_mode = WAL');
-    await db.execute('PRAGMA busy_timeout = 5000');
+    try {
+      await db.execute('PRAGMA foreign_keys = ON');
+    } catch (_) {}
+    try {
+      await db.rawQuery('PRAGMA journal_mode = WAL');
+    } catch (_) {
+      try {
+        await db.execute('PRAGMA journal_mode = WAL');
+      } catch (_) {}
+    }
+    try {
+      await db.execute('PRAGMA busy_timeout = 5000');
+    } catch (_) {}
   }
 
   Future<void> _createDB(Database db, int version) async {

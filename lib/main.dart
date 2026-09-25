@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:sqflite/sqflite.dart' show databaseFactorySqflitePlugin;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/di/injection.dart';
@@ -10,10 +11,12 @@ import 'core/ui/theme/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize SQLite FFI for Windows desktop
+  // Initialize SQLite: FFI for Windows desktop, sqflite plugin for Android / iOS
   if (Platform.isWindows) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+  } else {
+    databaseFactory = databaseFactorySqflitePlugin;
   }
 
   // Initialize central dependency injection container

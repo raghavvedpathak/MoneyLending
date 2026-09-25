@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
@@ -139,6 +138,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: StreamBuilder<List<LedgerRecord>>(
           stream: _recordRepository.getAllActiveRecords(),
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: AppTheme.dangerRed),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Failed to load records: ${snapshot.error}',
+                        style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => setState(() {}),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
             if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }

@@ -44,6 +44,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- sqflite WAL mode support on Android -->
+        <meta-data
+            android:name="com.tekartik.sqflite.wal_enabled"
+            android:value="true" />
         <!-- FileProvider for secure PDF sharing (§6.3) -->
         <provider
             android:name="androidx.core.content.FileProvider"

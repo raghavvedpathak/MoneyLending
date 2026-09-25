@@ -5,7 +5,6 @@ import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
-import '../../../core/utils/uuid_generator.dart';
 import '../../../domain/domain.dart';
 import '../widgets/add_edit_customer_dialog.dart';
 
@@ -32,13 +31,22 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
   Future<void> _loadCustomers() async {
-    final customers = await _customerRepository.getAllCustomers().first;
-    if (mounted) {
-      setState(() {
-        _allCustomers = customers;
-        _applySearch();
-        _isLoading = false;
-      });
+    try {
+      final customers = await _customerRepository.getAllCustomers().first;
+      if (mounted) {
+        setState(() {
+          _allCustomers = customers;
+          _applySearch();
+        });
+      }
+    } catch (e, stack) {
+      debugPrint('Error loading customers: $e\n$stack');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -66,6 +74,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
 
+  // ignore: unused_element
   void _showCustomerDetailSheet(Customer customer) async {
     final records = await _recordRepository.getRecordsByCustomer(customer.id).first;
     final customerReports = CalculationEngine.getCustomerReport([customer], records, today: DateTime.now().dateOnly);

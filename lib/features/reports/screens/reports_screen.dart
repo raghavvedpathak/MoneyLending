@@ -231,6 +231,9 @@ class _OverviewTabState extends State<_OverviewTab> with AutomaticKeepAliveClien
     return FutureBuilder<List<LedgerRecord>>(
       future: _recordsFuture,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading overview: ${snapshot.error}', style: const TextStyle(color: AppTheme.dangerRed)));
+        }
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
         final records = snapshot.data!;
@@ -367,6 +370,9 @@ class _CustomerSummaryListState extends State<_CustomerSummaryList> {
     return FutureBuilder<List<LedgerRecord>>(
       future: _recordsFuture,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading customer reports: ${snapshot.error}', style: const TextStyle(color: AppTheme.dangerRed)));
+        }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -746,7 +752,7 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
                             ...r.payments.map((p) => ListTile(
                               dense: true,
                               leading: const Icon(Icons.payment, size: 20, color: AppTheme.emerald),
-                              title: Text('${p.paymentId ?? "PAY"} • ${CurrencyFormatter.format(p.amount)}'),
+                              title: Text('${p.paymentId.isNotEmpty ? p.paymentId : "PAY"} • ${CurrencyFormatter.format(p.amount)}'),
                               subtitle: Text(
                                 '${AppDateFormatter.formatDate(p.date)} (Interest: ${CurrencyFormatter.format(p.interestPaid)}, Principal: ${CurrencyFormatter.format(p.principalPaid)})',
                                 style: const TextStyle(fontSize: 11),
@@ -793,6 +799,9 @@ class _MonthlyEarningsTabState extends State<_MonthlyEarningsTab> with Automatic
     return FutureBuilder<List<LedgerRecord>>(
       future: _recordsFuture,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading monthly interest: ${snapshot.error}', style: const TextStyle(color: AppTheme.dangerRed)));
+        }
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
         final records = snapshot.data!;
@@ -896,6 +905,9 @@ class _OverdueLoansTabState extends State<_OverdueLoansTab> with AutomaticKeepAl
     return FutureBuilder<List<OverdueRecord>>(
       future: _overdueFuture,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading overdue records: ${snapshot.error}', style: const TextStyle(color: AppTheme.dangerRed)));
+        }
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
         final overdues = snapshot.data!;
