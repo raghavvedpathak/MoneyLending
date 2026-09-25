@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../data/datasources/database_helper.dart';
-import '../schema/app_database.dart';
 
 export '../schema/app_database.dart' show openConnection;
 

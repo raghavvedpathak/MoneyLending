@@ -7,7 +7,7 @@ import '../../../data/models/settings_entity.dart';
 /// Mandated by Data Spec §4.2, §4.4, & §4.6 [FIX-ARCH-SETTINGS-1]:
 /// - Single-row table with id = 1.
 /// - Backing query: SELECT * FROM settings WHERE id = 1.
-/// - watchSettingsRow(): Stream<SettingsEntityData?> for reactive single-row observation.
+/// - `watchSettingsRow()`: `Stream<SettingsEntityData?>` for reactive single-row observation.
 /// - insertSettings uses ConflictAlgorithm.ignore (OnConflictStrategy.IGNORE / InsertMode.insertOrIgnore):
 ///   No-op if row already exists, safe to call on initial access.
 /// - upsertSettings uses ConflictAlgorithm.replace: safe for single-row settings table.
@@ -18,8 +18,8 @@ class SettingsDao {
   const SettingsDao(this._db);
 
   /// DAO backing query — single-row table (§4.6):
-  /// Stream<SettingsEntityData?> watchSettingsRow() =>
-  /// (select(settings)..where((s) => s.id.equals(1))).watchSingleOrNull();
+  /// `Stream<SettingsEntityData?> watchSettingsRow() =>`
+  /// `(select(settings)..where((s) => s.id.equals(1))).watchSingleOrNull();`
   Stream<SettingsEntityData?> watchSettingsRow() async* {
     yield await getSettingsEntity();
     await for (final _ in _settingsChanges.stream) {

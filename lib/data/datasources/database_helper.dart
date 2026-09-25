@@ -108,6 +108,7 @@ class DatabaseHelper {
           singleInstance: singleInstance,
           onCreate: _createDB,
           onConfigure: _onConfigure,
+          onOpen: _onOpen,
         ),
       );
     } else {
@@ -124,8 +125,19 @@ class DatabaseHelper {
         singleInstance: singleInstance,
         onCreate: _createDB,
         onConfigure: _onConfigure,
+        onOpen: _onOpen,
       );
     }
+  }
+
+  Future<void> _onOpen(Database db) async {
+    try {
+      final cols = await db.rawQuery("PRAGMA table_info('ledger_items')");
+      final colNames = cols.map((c) => c['name'] as String).toSet();
+      if (!colNames.contains('sourceItemId')) {
+        await db.execute('ALTER TABLE ledger_items ADD COLUMN sourceItemId TEXT');
+      }
+    } catch (_) {}
   }
 
   Future<void> _onConfigure(Database db) async {
@@ -196,6 +208,7 @@ class DatabaseHelper {
         itemValue REAL,
         lendPercentage REAL,
         lendableAmount REAL,
+        sourceItemId TEXT,
         FOREIGN KEY (recordId) REFERENCES records (id) ON DELETE CASCADE
       )
     ''');
@@ -481,7 +494,7 @@ class DatabaseHelper {
         for (final item in items) {
           final itemToInsert = item.recordId.isEmpty
               ? LedgerItemEntity(
-                  id: item.id,
+                  id: item.id.isEmpty ? AppUuid.generate() : item.id,
                   recordId: toInsert.id,
                   name: item.name,
                   itemCategory: item.itemCategory,
@@ -492,6 +505,7 @@ class DatabaseHelper {
                   itemValue: item.itemValue,
                   lendPercentage: item.lendPercentage,
                   lendableAmount: item.lendableAmount,
+                  sourceItemId: item.sourceItemId,
                 )
               : item;
           await txn.insert('ledger_items', itemToInsert.toMap(), conflictAlgorithm: ConflictAlgorithm.abort);
@@ -562,6 +576,7 @@ class DatabaseHelper {
                 itemValue: item.itemValue,
                 lendPercentage: item.lendPercentage,
                 lendableAmount: item.lendableAmount,
+                sourceItemId: item.sourceItemId,
               )
             : item;
         await txn.insert('ledger_items', itemToInsert.toMap(), conflictAlgorithm: ConflictAlgorithm.abort);

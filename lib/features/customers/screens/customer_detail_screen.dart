@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../core/calculations/calculations.dart';
+import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
@@ -33,15 +36,21 @@ class CustomerDetailScreen extends StatefulWidget {
 
 class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   late final CustomerDetailNotifier _notifier;
+  List<ItemRate> _currentRates = [];
+  StreamSubscription<List<ItemRate>>? _ratesSub;
 
   @override
   void initState() {
     super.initState();
     _notifier = CustomerDetailNotifier(customerId: widget.customerId);
+    _ratesSub = sl<ItemRateRepository>().watchCurrentRates().listen((rates) {
+      if (mounted) setState(() => _currentRates = rates);
+    });
   }
 
   @override
   void dispose() {
+    _ratesSub?.cancel();
     _notifier.dispose();
     super.dispose();
   }
@@ -323,6 +332,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 ...state.records.map((item) {
                   return _RecordLedgerCard(
                     item: item,
+                    currentRates: _currentRates,
                     onTap: () async {
                       await AppNavigator.navigate(
                         context,
@@ -384,10 +394,12 @@ class _StatCard extends StatelessWidget {
 class _RecordLedgerCard extends StatelessWidget {
   final CustomerLedgerRecordItem item;
   final VoidCallback onTap;
+  final List<ItemRate> currentRates;
 
   const _RecordLedgerCard({
     required this.item,
     required this.onTap,
+    this.currentRates = const [],
   });
 
   @override
@@ -442,6 +454,28 @@ class _RecordLedgerCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (record.isTaken && record.linkedRecordId != null && record.linkedRecordId!.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: AppTheme.badgeDecoration(AppTheme.gold),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.link, size: 10, color: AppTheme.gold),
+                              SizedBox(width: 3),
+                              Text(
+                                'LINKED',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.gold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   Container(
@@ -550,6 +584,85 @@ class _RecordLedgerCard extends StatelessWidget {
                           fontWeight: FontWeight.bold,
                           color: item.profitState is NetProfit ? AppTheme.emerald : AppTheme.accentCyan,
                         ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Collateral / Pledged Items
+              if (record.items.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.subCardDark,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppTheme.borderDark),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.shield_outlined, size: 13, color: AppTheme.gold),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Collateral (${record.items.length})',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.gold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Builder(
+                            builder: (context) {
+                              final lendingVal = record.items.fold(0.0, (s, i) => s + (i.itemValue > 0 ? i.itemValue : CalculationEngine.calculateItemValue(i)));
+                              final liveVal = CalculationEngine.calculateTotalLiveCollateralValue(record.items, currentRates);
+                              final hasDrift = liveVal > 0 && lendingVal > 0 && (liveVal != lendingVal);
+
+                              return Text(
+                                hasDrift
+                                    ? 'Live Val: ${CurrencyFormatter.format(liveVal)}'
+                                    : 'Val: ${CurrencyFormatter.format(lendingVal)}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.emerald,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: record.items.map((it) {
+                          final details = <String>[
+                            if (it.weight > 0) '${it.weight}g',
+                            if (it.purity > 0) '${it.purity}%',
+                          ];
+                          final detailStr = details.isNotEmpty ? ' (${details.join("@")})' : '';
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.cardDark,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: AppTheme.borderDark),
+                            ),
+                            child: Text(
+                              '${it.name}$detailStr',
+                              style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
+                            ),
+                          );
+                        }).toList(),
                       ),
                     ],
                   ),

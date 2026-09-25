@@ -6,7 +6,6 @@ import '../../features/customers/customers.dart';
 import '../../features/dashboard/dashboard.dart';
 import '../../features/entry/screens/add_entry_screen.dart';
 import '../../features/entry/screens/edit_transaction_screen.dart';
-import '../../features/entry/screens/loan_details_screen.dart';
 import '../../features/payments/screens/add_payment_screen.dart';
 import '../../features/reports/reports.dart';
 import '../../features/settings/settings.dart';

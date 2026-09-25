@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
@@ -33,31 +34,57 @@ class RecordDetailScreen extends StatefulWidget {
 class _RecordDetailScreenState extends State<RecordDetailScreen> {
   final RecordRepository _recordRepository = sl<RecordRepository>();
   final CustomerRepository _customerRepository = sl<CustomerRepository>();
+  final ItemRateRepository _itemRateRepository = sl<ItemRateRepository>();
 
   LedgerRecord? _record;
   Customer? _customer;
+  LedgerRecord? _linkedRecord;
+  List<LedgerRecord> _linkedTakenRecords = [];
+  List<ItemRate> _currentRates = [];
+  StreamSubscription<List<ItemRate>>? _ratesSub;
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     _record = widget.record;
+    _ratesSub = _itemRateRepository.watchCurrentRates().listen((rates) {
+      if (mounted) {
+        setState(() => _currentRates = rates);
+      }
+    });
     _loadRecord();
+  }
+
+  @override
+  void dispose() {
+    _ratesSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadRecord() async {
     try {
       final rec = await _recordRepository.getRecordById(widget.recordId);
       Customer? cust;
+      LedgerRecord? linkedGiven;
+      List<LedgerRecord> linkedTakens = [];
       if (rec != null) {
         final customers = await _customerRepository.getAllCustomersOnce();
         cust = customers.where((c) => c.id == rec.customerId).firstOrNull;
+        if (rec.isTaken && rec.linkedRecordId != null && rec.linkedRecordId!.isNotEmpty) {
+          linkedGiven = await _recordRepository.getRecordById(rec.linkedRecordId!);
+        } else if (rec.isGiven) {
+          final allRecords = await _recordRepository.getAllRecordsOnce();
+          linkedTakens = allRecords.where((r) => r.isTaken && r.linkedRecordId == rec.id).toList();
+        }
       }
 
       if (mounted) {
         setState(() {
           _record = rec ?? _record;
           _customer = cust;
+          _linkedRecord = linkedGiven;
+          _linkedTakenRecords = linkedTakens;
           _isLoading = false;
         });
       }
@@ -359,6 +386,142 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
           ),
           const SizedBox(height: 16),
 
+          // Linked Loan Given (for TAKEN record)
+          if (record.isTaken && _linkedRecord != null) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.cardDark,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.gold.withValues(alpha: 0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.link, size: 18, color: AppTheme.gold),
+                          SizedBox(width: 8),
+                          Text('Backed by Given Loan', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: AppTheme.badgeDecoration(AppTheme.gold),
+                        child: Text(_linkedRecord!.status.name, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.gold)),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_linkedRecord!.transactionId, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.gold)),
+                          const SizedBox(height: 2),
+                          Text('Customer: ${_linkedRecord!.customerName ?? "Customer"}', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(CurrencyFormatter.format(_linkedRecord!.principalAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 2),
+                          Text('${_linkedRecord!.interestRate}% / mo', style: const TextStyle(fontSize: 12, color: AppTheme.accentCyan)),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.open_in_new, size: 14),
+                      label: Text('View Linked Customer Loan (${_linkedRecord!.transactionId})'),
+                      onPressed: () {
+                        AppNavigator.navigate(context, RecordDetailRoute(_linkedRecord!.id, record: _linkedRecord));
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Linked Borrowings (for GIVEN record with child TAKEN records)
+          if (record.isGiven && _linkedTakenRecords.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.cardDark,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.emerald.withValues(alpha: 0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.link, size: 18, color: AppTheme.emerald),
+                          SizedBox(width: 8),
+                          Text('Linked Borrowings (${_linkedTakenRecords.length})', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: AppTheme.badgeDecoration(AppTheme.emerald),
+                        child: const Text('RE-PLEDGED', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 20),
+                  ..._linkedTakenRecords.map((tk) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(tk.transactionId, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
+                              Text('Lender: ${tk.customerName ?? "Lender"} • ${tk.interestRate}%/mo', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              Text(CurrencyFormatter.format(tk.principalAmount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                icon: const Icon(Icons.open_in_new, size: 16, color: AppTheme.emerald),
+                                tooltip: 'View Taken Loan',
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                onPressed: () {
+                                  AppNavigator.navigate(context, RecordDetailRoute(tk.id, record: tk));
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // Financial Summary
           Container(
             padding: const EdgeInsets.all(16),
@@ -405,39 +568,201 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppTheme.borderDark),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pledged Items (${record.items.length})',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const Divider(height: 20),
-                  ...record.items.map((item) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Row(
+              child: Builder(
+                builder: (context) {
+                  final lendingTotal = record.items.fold(0.0, (s, i) => s + (i.itemValue > 0 ? i.itemValue : CalculationEngine.calculateItemValue(i)));
+                  final liveTotal = CalculationEngine.calculateTotalLiveCollateralValue(record.items, _currentRates);
+                  final hasMarketDrift = liveTotal > 0 && lendingTotal > 0 && (liveTotal != lendingTotal);
+                  final totalDiff = liveTotal - lendingTotal;
+                  final totalDiffPct = lendingTotal > 0 ? (totalDiff / lendingTotal) * 100.0 : 0.0;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          Row(
                             children: [
-                              Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              const Icon(Icons.shield_outlined, size: 18, color: AppTheme.gold),
+                              const SizedBox(width: 8),
                               Text(
-                                '${item.itemCategory} • ${item.purity} • ${item.weight}g (${item.fineWeight}g fine)',
-                                style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                'Pledged Collateral (${record.items.length})',
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
-                          Text(
-                            CurrencyFormatter.format(item.itemValue),
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.gold),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (hasMarketDrift) ...[
+                                Text(
+                                  'Live: ${CurrencyFormatter.format(liveTotal)}',
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.emerald),
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Lent: ${CurrencyFormatter.format(lendingTotal)}',
+                                      style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: (totalDiff >= 0 ? AppTheme.emerald : AppTheme.rose).withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                      child: Text(
+                                        '${totalDiff >= 0 ? "+" : ""}${CurrencyFormatter.format(totalDiff)} (${totalDiff >= 0 ? "+" : ""}${totalDiffPct.toStringAsFixed(1)}%)',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                          color: totalDiff >= 0 ? AppTheme.emerald : AppTheme.rose,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ] else ...[
+                                Text(
+                                  CurrencyFormatter.format(lendingTotal),
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.gold),
+                                ),
+                              ],
+                            ],
                           ),
                         ],
                       ),
-                    );
-                  }),
-                ],
+                      const Divider(height: 20),
+                      ...record.items.map((item) {
+                        final itemLiveRate = CalculationEngine.getUsableRate(_currentRates, item.itemCategory);
+                        final liveVal = CalculationEngine.calculateLiveItemValue(item, _currentRates);
+                        final lendingVal = item.itemValue > 0 ? item.itemValue : CalculationEngine.calculateItemValue(item);
+                        final itemDiff = liveVal - lendingVal;
+                        final hasItemDrift = itemLiveRate != null && itemLiveRate > 0 && liveVal != lendingVal && lendingVal > 0;
+                        final itemDiffPct = lendingVal > 0 ? (itemDiff / lendingVal) * 100.0 : 0.0;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.subCardDark,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.borderDark),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      item.name,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: AppTheme.badgeDecoration(AppTheme.gold),
+                                    child: Text(
+                                      item.itemCategory,
+                                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.gold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (item.description != null && item.description!.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.description!,
+                                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontStyle: FontStyle.italic),
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  Text(
+                                    '${item.weight}g @ ${item.purity}% (${item.fineWeight.toStringAsFixed(2)}g fine)',
+                                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                  ),
+                                  if (item.rate > 0)
+                                    Text(
+                                      '• Lent @ ₹${item.rate.toStringAsFixed(0)}/g',
+                                      style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                                    ),
+                                  if (itemLiveRate != null && itemLiveRate > 0)
+                                    Text(
+                                      '• Live: ₹${itemLiveRate.toStringAsFixed(0)}/g',
+                                      style: const TextStyle(fontSize: 12, color: AppTheme.emerald, fontWeight: FontWeight.w600),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 4,
+                                children: [
+                                  if (lendingVal > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: AppTheme.badgeDecoration(AppTheme.gold),
+                                      child: Text(
+                                        'Valuation at Lending: ${CurrencyFormatter.format(lendingVal)}',
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.gold),
+                                      ),
+                                    ),
+                                  if (hasItemDrift) ...[
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: AppTheme.badgeDecoration(AppTheme.emerald),
+                                      child: Text(
+                                        'Live Market Val: ${CurrencyFormatter.format(liveVal)}',
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.emerald),
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: (itemDiff >= 0 ? AppTheme.emerald : AppTheme.rose).withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: (itemDiff >= 0 ? AppTheme.emerald : AppTheme.rose).withValues(alpha: 0.3),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '${itemDiff >= 0 ? "▲ +" : "▼ "}${CurrencyFormatter.format(itemDiff.abs())} (${itemDiff >= 0 ? "+" : ""}${itemDiffPct.toStringAsFixed(1)}%)',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: itemDiff >= 0 ? AppTheme.emerald : AppTheme.rose,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  if (item.lendableAmount > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: AppTheme.badgeDecoration(AppTheme.accentCyan),
+                                      child: Text(
+                                        'Max Lendable (${item.lendPercentage.toStringAsFixed(0)}%): ${CurrencyFormatter.format(item.lendableAmount)}',
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.accentCyan),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  );
+                },
               ),
             ),
             const SizedBox(height: 16),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/calculations/calculations.dart';
@@ -39,12 +40,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Settings? _settings;
   String _searchQuery = '';
   bool _showSafeRecords = false;
+  List<ItemRate> _currentRates = [];
+  StreamSubscription<List<ItemRate>>? _ratesSub;
 
   @override
   void initState() {
     super.initState();
     _viewModel = DashboardViewModel();
     _loadSettings();
+    _ratesSub = _viewModel.watchCurrentRates().listen((rates) {
+      if (mounted) setState(() => _currentRates = rates);
+    });
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.trim().toLowerCase();
@@ -59,6 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _ratesSub?.cancel();
     _viewModel.dispose();
     _scrollController.dispose();
     _searchController.dispose();
@@ -466,6 +473,83 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ],
               ),
+              if (record.isTaken && record.linkedRecordId != null && record.linkedRecordId!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentCyan.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppTheme.accentCyan.withValues(alpha: 0.3)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.link, size: 11, color: AppTheme.accentCyan),
+                      SizedBox(width: 4),
+                      Text(
+                        'Backed by Customer Loan',
+                        style: TextStyle(fontSize: 10, color: AppTheme.accentCyan, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (record.items.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.gold.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppTheme.gold.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.shield_outlined, size: 11, color: AppTheme.gold),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${record.items.length} Collateral (${record.items.map((i) => i.name).join(", ")})',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.gold, fontWeight: FontWeight.w600),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Builder(
+                      builder: (context) {
+                        final lendingVal = record.items.fold(0.0, (sum, i) => sum + (i.itemValue > 0 ? i.itemValue : CalculationEngine.calculateItemValue(i)));
+                        final liveVal = CalculationEngine.calculateTotalLiveCollateralValue(record.items, _currentRates);
+                        if (liveVal <= 0 && lendingVal <= 0) return const SizedBox.shrink();
+
+                        final displayVal = liveVal > 0 ? liveVal : lendingVal;
+                        final hasDrift = liveVal > 0 && lendingVal > 0 && (liveVal != lendingVal);
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.emerald.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: AppTheme.emerald.withValues(alpha: 0.3)),
+                          ),
+                          child: Text(
+                            hasDrift
+                                ? 'Live Val: ${CurrencyFormatter.format(liveVal)}'
+                                : 'Val: ${CurrencyFormatter.format(displayVal)}',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.emerald, fontWeight: FontWeight.w600),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

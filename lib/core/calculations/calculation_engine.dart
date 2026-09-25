@@ -19,6 +19,10 @@ export 'interest/months_between.dart';
 class CalculationEngine {
   CalculationEngine._();
 
+  /// [FIX-MONEY-1] Canonical rounding to 2 decimals, half away from zero.
+  static double roundMoney(double v) =>
+      (v * 100 + (v >= 0 ? 1e-6 : -1e-6)).roundToDouble() / 100 + 0.0;
+
   /// Computes itemValue and lendableAmount snapshot (§5.1):
   /// itemValue = roundMoney(weight * (purity / 100) * rate);
   /// lendableAmount = roundMoney(itemValue * (lendPercentage / 100)).
@@ -39,6 +43,29 @@ class CalculationEngine {
   /// computeCollateralOverdue() and RecordDetailScreen (Addendum J.1).
   static double liveItemValue(LedgerItem item, double rate) =>
       roundMoney(item.fineWeight * rate);
+
+  /// Resolves the live market rate for an item's category from a list of current rates.
+  static double? getUsableRate(List<ItemRate> rates, String category) =>
+      coll_alerts.usableRate(rates, category);
+
+  /// Computes live market valuation for a collateral item using live rates.
+  /// If no usable rate is found, returns the snapshot [calculateItemValue(item)].
+  static double calculateLiveItemValue(LedgerItem item, List<ItemRate> rates) {
+    final rate = coll_alerts.usableRate(rates, item.itemCategory);
+    if (rate != null && rate > 0) {
+      if (item.fineWeight > 0) {
+        return liveItemValue(item, rate);
+      } else if (item.weight > 0) {
+        final purityFraction = item.purity > 0 ? item.purity / 100.0 : 1.0;
+        return roundMoney(item.weight * purityFraction * rate);
+      }
+    }
+    return calculateItemValue(item);
+  }
+
+  /// Computes total live market collateral value across all items.
+  static double calculateTotalLiveCollateralValue(List<LedgerItem> items, List<ItemRate> rates) =>
+      sumMoney(items.map((item) => calculateLiveItemValue(item, rates)));
 
   /// Two-branch half-month rounding (§5.2).
   /// Canonical implementation in interest/months_between.dart.
@@ -679,6 +706,8 @@ class CalculationEngine {
 double calculateItemValue(LedgerItem item) => CalculationEngine.calculateItemValue(item);
 double calculateTotalItemValue(List<LedgerItem> items) => CalculationEngine.calculateTotalItemValue(items);
 double liveItemValue(LedgerItem item, double rate) => CalculationEngine.liveItemValue(item, rate);
+double calculateLiveItemValue(LedgerItem item, List<ItemRate> rates) => CalculationEngine.calculateLiveItemValue(item, rates);
+double calculateTotalLiveCollateralValue(List<LedgerItem> items, List<ItemRate> rates) => CalculationEngine.calculateTotalLiveCollateralValue(items, rates);
 DateTime lastActivityDate(LedgerRecord record) => CalculationEngine.lastActivityDate(record);
 double calculateInterestForPeriod({
   required double principal,

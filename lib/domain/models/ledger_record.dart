@@ -80,6 +80,7 @@ class LedgerRecord {
     DateTime? settledDate,
     double? calculatedInterest,
     String? linkedRecordId,
+    bool clearLinkedRecord = false,
     List<LedgerItem>? items,
     List<Payment>? payments,
   }) {
@@ -96,7 +97,7 @@ class LedgerRecord {
       status: status ?? this.status,
       settledDate: settledDate ?? this.settledDate,
       calculatedInterest: calculatedInterest ?? this.calculatedInterest,
-      linkedRecordId: linkedRecordId ?? this.linkedRecordId,
+      linkedRecordId: clearLinkedRecord ? null : (linkedRecordId ?? this.linkedRecordId),
       items: items ?? this.items,
       payments: payments ?? this.payments,
     );

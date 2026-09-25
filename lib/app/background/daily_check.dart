@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show DartPluginRegistrant;
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -123,18 +122,16 @@ Future<void> runDailyChecks({
     final lastReasonsList = sharedPrefs?.getStringList('notif_overdue_reasons_$recId');
 
     final lastDate = lastDateStr != null ? DateTime.tryParse(lastDateStr) : null;
-    final lastReasons = lastReasonsList != null
-        ? lastReasonsList
-            .map((s) {
-              try {
-                return OverdueReason.values.byName(s);
-              } catch (_) {
-                return null;
-              }
-            })
-            .whereType<OverdueReason>()
-            .toSet()
-        : null;
+    final lastReasons = lastReasonsList
+        ?.map((s) {
+          try {
+            return OverdueReason.values.byName(s);
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<OverdueReason>()
+        .toSet();
 
     if (CalculationEngine.shouldNotify(
       lastNotifiedDate: lastDate,
