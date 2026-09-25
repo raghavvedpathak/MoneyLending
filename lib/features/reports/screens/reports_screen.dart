@@ -5,6 +5,7 @@ import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/pdf/pdf.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
+import '../../../core/ui/formatters/id_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
@@ -458,7 +459,7 @@ class _CustomerReportCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          customer.displayId,
+                          AppIdFormatter.formatCustomerId(customer.displayId),
                           style: const TextStyle(
                             fontSize: 12,
                             color: AppTheme.gold,
@@ -627,7 +628,7 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    '${customer.displayId}${customer.phone != null && customer.phone!.isNotEmpty ? " • ${customer.phone}" : ""}',
+                    '${AppIdFormatter.formatCustomerId(customer.displayId)}${customer.phone != null && customer.phone!.isNotEmpty ? " • ${customer.phone}" : ""}',
                     style: const TextStyle(color: AppTheme.gold, fontSize: 13),
                   ),
                 ],
@@ -676,7 +677,7 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        _ReportRow(label: 'Customer ID', value: customer.displayId),
+                        _ReportRow(label: 'Customer ID', value: AppIdFormatter.formatCustomerId(customer.displayId)),
                         _ReportRow(label: 'Customer Name', value: customer.name),
                         if (customer.phone != null && customer.phone!.isNotEmpty)
                           _ReportRow(label: 'Phone', value: customer.phone!),
@@ -711,6 +712,7 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
                 else
                   ...records.map((r) {
                     final isGiven = r.type == RecordType.GIVEN;
+                    final fin = CalculationEngine.calculateRecordFinancials(r, DateTime.now());
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ExpansionTile(
@@ -721,9 +723,9 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
                             color: isGiven ? AppTheme.accentCyan : AppTheme.emerald,
                           ),
                         ),
-                        title: Text('${r.transactionId} • ${CurrencyFormatter.format(r.principalAmount)}'),
+                        title: Text('${AppIdFormatter.formatTransactionId(r.transactionId)} • ${CurrencyFormatter.format(r.principalAmount)}'),
                         subtitle: Text(
-                          'Started: ${AppDateFormatter.formatDate(r.startDate)} • Rate: ${r.interestRate}%/mo',
+                          'Started: ${AppDateFormatter.formatDate(r.startDate)} • Duration: ${AppDateFormatter.formatMonths(fin.months)} • Rate: ${r.interestRate}%/mo',
                         ),
                         trailing: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -752,7 +754,7 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
                             ...r.payments.map((p) => ListTile(
                               dense: true,
                               leading: const Icon(Icons.payment, size: 20, color: AppTheme.emerald),
-                              title: Text('${p.paymentId.isNotEmpty ? p.paymentId : "PAY"} • ${CurrencyFormatter.format(p.amount)}'),
+                              title: Text('${p.paymentId.isNotEmpty ? AppIdFormatter.formatPaymentId(p.paymentId) : "PAY"} • ${CurrencyFormatter.format(p.amount)}'),
                               subtitle: Text(
                                 '${AppDateFormatter.formatDate(p.date)} (Interest: ${CurrencyFormatter.format(p.interestPaid)}, Principal: ${CurrencyFormatter.format(p.principalPaid)})',
                                 style: const TextStyle(fontSize: 11),
@@ -953,7 +955,7 @@ class _OverdueLoansTabState extends State<_OverdueLoansTab> with AutomaticKeepAl
                   children: [
                     Expanded(
                       child: Text(
-                        '${o.record.customerName ?? "Customer"} • ${o.record.transactionId}',
+                        '${o.record.customerName ?? "Customer"} • ${AppIdFormatter.formatTransactionId(o.record.transactionId)}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),

@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/core/di/injection.dart';
 import 'package:money_lending/domain/domain.dart';
 import 'package:money_lending/features/reports/reports.dart';
-import 'test_db_helper.dart';
+import '../test_db_helper.dart';
 
 void main() {
   late CustomerRepository customerRepo;
@@ -162,7 +162,7 @@ void main() {
 
       // 1. Initial State: Customer list with all 5 fields
       expect(find.text('Raj Patel'), findsOneWidget);
-      expect(find.text('CUST26-27-03'), findsOneWidget);
+      expect(find.text('CUST-26/27-03'), findsOneWidget);
       expect(find.text('1 Active'), findsWidgets);
       expect(find.text('Total Principal Out'), findsWidgets);
       expect(find.text('Total Interest Accrued'), findsWidgets);
@@ -183,7 +183,7 @@ void main() {
       // Drill-down view is displayed
       expect(find.byIcon(Icons.arrow_back), findsOneWidget);
       expect(find.text('Record History'), findsOneWidget);
-      expect(find.textContaining('TRAN092603'), findsOneWidget);
+      expect(find.textContaining('092603'), findsOneWidget);
 
       // FAB becomes visible for statement export
       expect(find.text('Export Statement PDF'), findsOneWidget);
@@ -241,7 +241,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // Overdue list should show record
-      expect(find.textContaining('TRAN092604'), findsOneWidget);
+      expect(find.textContaining('092604'), findsOneWidget);
       expect(find.textContaining('Inactive: 45 days'), findsOneWidget);
 
       // FAB is hidden on Overdue tab

@@ -18,27 +18,34 @@ class AppTheme {
   AppTheme._();
 
   // ===========================================================================
-  // SHADCN ZINC COLOR TOKENS
+  // MODERN JEWELLERY STUDIO DESIGN SYSTEM (LIGHT PALETTE)
   // ===========================================================================
-  static const Color bgDark = Color(0xFF09090B); // Shadcn Zinc-950 Background
-  static const Color cardDark = Color(0xFF18181B); // Shadcn Zinc-900 Card
-  static const Color subCardDark = Color(0xFF27272A); // Shadcn Zinc-800 Subcard / Popover
-  static const Color borderDark = Color(0xFF27272A); // Shadcn Zinc-800 Border
-  static const Color borderActive = Color(0xFF3F3F46); // Shadcn Zinc-700 Border Active
+  static const Color bgDark = Color(0xFFF8FAFC); // Slate-50 Soft Pearl White Canvas
+  static const Color cardDark = Color(0xFFFFFFFF); // Pure Crisp White Card Surface
+  static const Color subCardDark = Color(0xFFF1F5F9); // Slate-100 Recessed Subcard / Popover
+  static const Color borderDark = Color(0xFFE2E8F0); // Slate-200 Subtle 1px Border
+  static const Color borderActive = Color(0xFFCBD5E1); // Slate-300 Border Active
 
-  // Financial Accents
-  static const Color gold = Color(0xFFF59E0B); // Amber-500 Primary Financial Accent
-  static const Color goldGlow = Color(0xFFFBBF24); // Amber-400 Hover / Glow
-  static const Color goldDark = Color(0xFFD97706); // Amber-600 Dark
+  // Semantic Light Aliases
+  static const Color bgLight = bgDark;
+  static const Color cardLight = cardDark;
+  static const Color subCardLight = subCardDark;
+  static const Color borderLight = borderDark;
 
-  static const Color accentCyan = Color(0xFF38BDF8); // Sky-400 (Given / Loans)
-  static const Color emerald = Color(0xFF10B981); // Emerald-500 (Taken / Success)
-  static const Color rose = Color(0xFFF43F5E); // Rose-500 (Risk / Overdue)
+  // Financial Accents (Rich high-contrast tones for Jewellery Light Theme)
+  static const Color gold = Color(0xFFD97706); // Amber-600 Rich Jewellery Gold
+  static const Color goldGlow = Color(0xFFF59E0B); // Amber-500 Hover / Glow
+  static const Color goldDark = Color(0xFFB45309); // Amber-700 Deep Warm Gold
+  static const Color silver = Color(0xFF64748B); // Slate-500 Polished Metallic Silver Accent
 
-  // Typography Tokens
-  static const Color textPrimary = Color(0xFFFAFAFA); // Shadcn Zinc-50 Foreground
-  static const Color textSecondary = Color(0xFFA1A1AA); // Shadcn Zinc-400 Muted Foreground
-  static const Color textMuted = Color(0xFF71717A); // Shadcn Zinc-500 Muted
+  static const Color accentCyan = Color(0xFF0284C7); // Sky-600 High Contrast (Given / Loans)
+  static const Color emerald = Color(0xFF059669); // Emerald-600 High Contrast (Taken / Repayments)
+  static const Color rose = Color(0xFFE11D48); // Rose-600 High Contrast (Risk / Overdue)
+
+  // Typography Tokens (High-contrast Slate)
+  static const Color textPrimary = Color(0xFF0F172A); // Slate-900 Deep Charcoal Foreground
+  static const Color textSecondary = Color(0xFF475569); // Slate-600 Muted Foreground
+  static const Color textMuted = Color(0xFF94A3B8); // Slate-400 Subtle Hint / Inactive
 
   // Backward-compatible aliases
   static const Color primaryNavy = bgDark;
@@ -50,15 +57,15 @@ class AppTheme {
   static const Color dangerRed = rose;
 
   // ===========================================================================
-  // SHADCN ZINC THEMEDATA SPECIFICATION
+  // MODERN JEWELLERY LIGHT THEMEDATA SPECIFICATION
   // ===========================================================================
-  static ThemeData get darkTheme {
-    const colorScheme = ColorScheme.dark(
-      brightness: Brightness.dark,
+  static ThemeData get lightTheme {
+    final colorScheme = ColorScheme.light(
+      brightness: Brightness.light,
       primary: gold,
-      onPrimary: bgDark,
+      onPrimary: Colors.white,
       secondary: accentCyan,
-      onSecondary: bgDark,
+      onSecondary: Colors.white,
       tertiary: emerald,
       error: rose,
       onError: Colors.white,
@@ -70,20 +77,20 @@ class AppTheme {
 
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: bgDark,
       canvasColor: cardDark,
       fontFamily: 'Roboto',
       dividerColor: borderDark,
 
-      // Shadcn Dropdown & Popup Menu Surfaces
+      // Dropdown & Popup Menu Surfaces
       dropdownMenuTheme: DropdownMenuThemeData(
         textStyle: const TextStyle(color: textPrimary, fontSize: 14),
         menuStyle: MenuStyle(
           backgroundColor: const WidgetStatePropertyAll<Color>(cardDark),
           surfaceTintColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
-          elevation: const WidgetStatePropertyAll<double>(8),
+          elevation: const WidgetStatePropertyAll<double>(6),
           shape: WidgetStatePropertyAll<OutlinedBorder>(
             RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
@@ -93,12 +100,12 @@ class AppTheme {
         ),
       ),
 
-      // Shadcn Minimalist AppBar
+      // Minimalist Clean White AppBar
       appBarTheme: const AppBarTheme(
-        backgroundColor: bgDark,
+        backgroundColor: cardDark,
         foregroundColor: textPrimary,
         elevation: 0,
-        scrolledUnderElevation: 0,
+        scrolledUnderElevation: 1,
         centerTitle: false,
         titleTextStyle: TextStyle(
           fontSize: 18,
@@ -106,9 +113,10 @@ class AppTheme {
           letterSpacing: -0.2,
           color: textPrimary,
         ),
+        iconTheme: IconThemeData(color: textPrimary),
       ),
 
-      // Shadcn Precision 1px Border Card
+      // Precision 1px Border Card with Soft Shadow
       cardTheme: CardThemeData(
         elevation: 0,
         color: cardDark,
@@ -120,10 +128,10 @@ class AppTheme {
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       ),
 
-      // Shadcn NavigationBar
+      // Modern NavigationBar (White surface with Amber indicator)
       navigationBarTheme: NavigationBarThemeData(
         elevation: 0,
-        backgroundColor: bgDark,
+        backgroundColor: cardDark,
         indicatorColor: gold.withValues(alpha: 0.15),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
@@ -136,28 +144,28 @@ class AppTheme {
           return const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: textMuted,
+            color: textSecondary,
           );
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return const IconThemeData(color: gold, size: 22);
           }
-          return const IconThemeData(color: textMuted, size: 22);
+          return const IconThemeData(color: textSecondary, size: 22);
         }),
       ),
 
-      // Shadcn Compact Floating Action Button
+      // Compact Floating Action Button
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: gold,
-        foregroundColor: bgDark,
+        foregroundColor: Colors.white,
         elevation: 4,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(12)),
         ),
       ),
 
-      // Shadcn Minimalist 1px Border Form Inputs
+      // Clean Form Inputs
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: cardDark,
@@ -178,11 +186,11 @@ class AppTheme {
         ),
       ),
 
-      // Shadcn Primary Button
+      // Primary Button (Amber-600 with White Text)
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: gold,
-          foregroundColor: bgDark,
+          foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           elevation: 0,
@@ -190,7 +198,7 @@ class AppTheme {
         ),
       ),
 
-      // Shadcn Secondary / Outline Button
+      // Secondary / Outline Button
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: textPrimary,
@@ -201,7 +209,7 @@ class AppTheme {
         ),
       ),
 
-      // Shadcn Ghost / Text Button
+      // Ghost / Text Button
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: gold,
@@ -209,7 +217,7 @@ class AppTheme {
         ),
       ),
 
-      // Shadcn Dialog Surface
+      // Dialog Surface
       dialogTheme: DialogThemeData(
         backgroundColor: cardDark,
         surfaceTintColor: Colors.transparent,
@@ -219,7 +227,7 @@ class AppTheme {
         ),
       ),
 
-      // Shadcn BottomSheet
+      // BottomSheet
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: cardDark,
         surfaceTintColor: Colors.transparent,
@@ -230,10 +238,10 @@ class AppTheme {
         ),
       ),
 
-      // Shadcn Segmented Button
+      // Segmented Button
       segmentedButtonTheme: SegmentedButtonThemeData(
         style: SegmentedButton.styleFrom(
-          selectedBackgroundColor: subCardDark,
+          selectedBackgroundColor: gold.withValues(alpha: 0.15),
           selectedForegroundColor: gold,
           foregroundColor: textSecondary,
           side: const BorderSide(color: borderDark, width: 1),
@@ -241,10 +249,10 @@ class AppTheme {
         ),
       ),
 
-      // Shadcn Tabs
+      // Tabs
       tabBarTheme: const TabBarThemeData(
         labelColor: gold,
-        unselectedLabelColor: textMuted,
+        unselectedLabelColor: textSecondary,
         indicatorColor: gold,
         dividerColor: borderDark,
         labelStyle: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
@@ -253,18 +261,20 @@ class AppTheme {
     );
   }
 
+  static ThemeData get darkTheme => lightTheme;
+
   // ===========================================================================
   // REUSABLE SHADCN ATOMIC COMPONENT DECORATIONS
   // ===========================================================================
 
-  /// Metric Card surface: 1px Zinc-800 border with dark card surface
+  /// Metric Card surface: 1px Slate-200 border with white card surface and soft shadow
   static BoxDecoration get metricCardDecoration => BoxDecoration(
         color: cardDark,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: borderDark, width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
+            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -377,9 +387,5 @@ class AppTheme {
       TextStyle(
         fontSize: fontSize,
         fontWeight: fontWeight,
-        color: color,
       );
-
-  // Light theme alias
-  static ThemeData get lightTheme => darkTheme;
 }

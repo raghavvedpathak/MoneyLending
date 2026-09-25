@@ -4,6 +4,7 @@ import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
+import '../../../core/ui/formatters/id_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
@@ -71,7 +72,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Customer'),
         content: Text(
-          'Are you sure you want to delete ${customer.name} (${customer.displayId})?\n\n'
+          'Are you sure you want to delete ${customer.name} (${AppIdFormatter.formatCustomerId(customer.displayId)})?\n\n'
           'The customer ID will be permanently retired (FIX-ID-REUSE-1) and never reissued.\n\n'
           'Customers with active or settled records cannot be deleted.',
         ),
@@ -97,7 +98,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         await _notifier.deleteCustomer();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            AppTheme.successSnackBar('Customer ${customer.displayId} deleted'),
+            AppTheme.successSnackBar('Customer ${AppIdFormatter.formatCustomerId(customer.displayId)} deleted'),
           );
           Navigator.of(context).pop(true);
         }
@@ -108,7 +109,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             builder: (ctx) => AlertDialog(
               title: const Text('Cannot Delete Customer'),
               content: Text(
-                'Cannot delete customer ${customer.displayId} because ${e.recordCount} record(s) '
+                'Cannot delete customer ${AppIdFormatter.formatCustomerId(customer.displayId)} because ${e.recordCount} record(s) '
                 'are still associated with this customer.\n\n'
                 'Please settle or delete all transactions before deleting the customer.',
               ),
@@ -228,7 +229,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                customer.displayId,
+                                AppIdFormatter.formatCustomerId(customer.displayId),
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
@@ -242,7 +243,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: AppTheme.badgeDecoration(AppTheme.gold, borderRadius: 8),
                           child: Text(
-                            customer.displayId,
+                            AppIdFormatter.formatCustomerId(customer.displayId),
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               color: AppTheme.gold,
@@ -430,7 +431,7 @@ class _RecordLedgerCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: AppTheme.badgeDecoration(AppTheme.gold),
                         child: Text(
-                          record.transactionId,
+                          AppIdFormatter.formatTransactionId(record.transactionId),
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
@@ -459,17 +460,39 @@ class _RecordLedgerCard extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.link, size: 10, color: AppTheme.gold),
-                              SizedBox(width: 3),
+                              const Icon(Icons.link, size: 10, color: AppTheme.gold),
+                              const SizedBox(width: 3),
                               Text(
-                                'LINKED',
-                                style: TextStyle(
+                                item.linkedRecord != null ? 'LINKED: ${AppIdFormatter.formatTransactionId(item.linkedRecord!.transactionId)}' : 'LINKED',
+                                style: const TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.bold,
                                   color: AppTheme.gold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (record.isGiven && (item.linkedTakens?.isNotEmpty ?? false)) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: AppTheme.badgeDecoration(AppTheme.accentCyan),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.link, size: 10, color: AppTheme.accentCyan),
+                              const SizedBox(width: 3),
+                              Text(
+                                'FINANCED (${item.linkedTakens?.length ?? 0})',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.accentCyan,
                                 ),
                               ),
                             ],
@@ -496,12 +519,12 @@ class _RecordLedgerCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
 
-              // Row 2: Date with formatDate() [FIX-TIMESTAMPCUSTOMERHISTORY-1] (revised v1.15)
+              // Row 2: Date with formatDate() [FIX-TIMESTAMPCUSTOMERHISTORY-1] and duration in months
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Started ${AppDateFormatter.formatDate(record.startDate)}',
+                    'Started ${AppDateFormatter.formatDate(record.startDate)} • ${AppDateFormatter.formatMonths(financials.months)}',
                     style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                   ),
                   Text(
@@ -529,7 +552,7 @@ class _RecordLedgerCard extends StatelessWidget {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      const Text('Accrued Interest', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+                      Text('Accrued (${AppDateFormatter.formatMonths(financials.months)})', style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
                       Text(
                         CurrencyFormatter.format(financials.totalInterest),
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.gold),
@@ -549,9 +572,120 @@ class _RecordLedgerCard extends StatelessWidget {
                 ],
               ),
 
-              // Profit line for TAKEN records resolved exclusively via ProfitState (§10.2)
-              // The widget renders the label from ProfitState — it does not inspect record.status directly.
-              if (item.profitState is InterimProfit || item.profitState is NetProfit) ...[
+              // Linked Given Loan Details (for TAKEN record)
+              if (record.isTaken && item.linkedRecord != null) ...[
+                const SizedBox(height: 10),
+                InkWell(
+                  onTap: () {
+                    AppNavigator.navigate(
+                      context,
+                      RecordDetailRoute(item.linkedRecord!.id, record: item.linkedRecord),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.cardDark,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.gold.withValues(alpha: 0.4)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.link, size: 15, color: AppTheme.gold),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Backed by: ${AppIdFormatter.formatTransactionId(item.linkedRecord!.transactionId)}',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.gold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: AppTheme.badgeDecoration(
+                                item.linkedRecord!.isActive ? AppTheme.emerald : AppTheme.accentCyan,
+                              ),
+                              child: Text(
+                                item.linkedRecord!.status.name,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: item.linkedRecord!.isActive ? AppTheme.emerald : AppTheme.accentCyan,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Customer: ${item.linkedCustomerName ?? "Customer"} (${AppIdFormatter.formatCustomerId(item.linkedCustomerDisplayId ?? item.linkedRecord!.customerId)})',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(
+                              '${CurrencyFormatter.format(item.linkedRecord!.principalAmount)} @ ${item.linkedRecord!.interestRate}%/mo',
+                              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                            ),
+                          ],
+                        ),
+                        if (item.profitState is InterimProfit || item.profitState is NetProfit) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: item.profitState is NetProfit
+                                  ? AppTheme.emerald.withValues(alpha: 0.12)
+                                  : AppTheme.accentCyan.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: item.profitState is NetProfit
+                                    ? AppTheme.emerald.withValues(alpha: 0.3)
+                                    : AppTheme.accentCyan.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  item.profitState.label ?? 'Profit Spread',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: item.profitState is NetProfit ? AppTheme.emerald : AppTheme.accentCyan,
+                                  ),
+                                ),
+                                Text(
+                                  CurrencyFormatter.format(item.profitState.profitAmount ?? 0.0),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: item.profitState is NetProfit ? AppTheme.emerald : AppTheme.accentCyan,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ] else if (item.profitState is InterimProfit || item.profitState is NetProfit) ...[
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -585,6 +719,66 @@ class _RecordLedgerCard extends StatelessWidget {
                           color: item.profitState is NetProfit ? AppTheme.emerald : AppTheme.accentCyan,
                         ),
                       ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Linked Borrowings Details (for GIVEN record)
+              if (record.isGiven && (item.linkedTakens?.isNotEmpty ?? false)) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.cardDark,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppTheme.accentCyan.withValues(alpha: 0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.link, size: 15, color: AppTheme.accentCyan),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Financed by Backer Borrowings (${item.linkedTakens?.length ?? 0})',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.accentCyan,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      ...(item.linkedTakens ?? const []).map((taken) {
+                        return InkWell(
+                          onTap: () {
+                            AppNavigator.navigate(
+                              context,
+                              RecordDetailRoute(taken.id, record: taken),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${AppIdFormatter.formatTransactionId(taken.transactionId)} • ${taken.customerName ?? "Financier"}',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                                ),
+                                Text(
+                                  '${CurrencyFormatter.format(taken.principalAmount)} @ ${taken.interestRate}%/mo',
+                                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
                     ],
                   ),
                 ),
@@ -689,7 +883,7 @@ class _RecordLedgerCard extends StatelessWidget {
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                               decoration: AppTheme.badgeDecoration(AppTheme.gold),
                               child: Text(
-                                p.paymentId,
+                                AppIdFormatter.formatPaymentId(p.paymentId),
                                 style: const TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,

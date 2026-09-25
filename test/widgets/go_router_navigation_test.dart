@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/core/di/injection.dart';
 import 'package:money_lending/core/navigation/app_router.dart';
 import 'package:money_lending/main.dart';
-import 'test_db_helper.dart';
+import '../test_db_helper.dart';
 
 void main() {
   setUpAll(() async {

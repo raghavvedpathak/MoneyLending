@@ -42,6 +42,15 @@ class AppDateFormatter {
     return pure_date.formatMonthYear(date);
   }
 
+  /// Formats duration / tenure in months (e.g. "1 month", "2 months", "2.5 months")
+  static String formatMonths(double months) {
+    if (months == 1.0) return '1 month';
+    if (months == months.roundToDouble()) {
+      return '${months.toInt()} months';
+    }
+    return '${months.toStringAsFixed(1)} months';
+  }
+
   /// Formats an ISO string as "20 September 2026"
   static String formatDateString(String? isoString, {String fallback = '—'}) {
     if (isoString == null || isoString.trim().isEmpty) return fallback;
@@ -117,5 +126,6 @@ String formatDateString(String? isoString, {String fallback = '—'}) =>
 String formatDateTimeString(String? isoString, {String fallback = '—'}) =>
     AppDateFormatter.formatDateTimeString(isoString, fallback: fallback);
 String formatInputDate(DateTime date) => AppDateFormatter.formatInputDate(date);
+String formatMonths(double months) => AppDateFormatter.formatMonths(months);
 String toIsoDate(DateTime date) => AppDateFormatter.toIsoDate(date);
 String toIsoDateTime(DateTime dateTime) => AppDateFormatter.toIsoDateTime(dateTime);

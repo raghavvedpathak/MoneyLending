@@ -5,7 +5,9 @@ import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart' hide Settings;
 import '../../../core/ui/formatters/currency_formatter.dart';
+import '../../../core/ui/formatters/id_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../viewmodels/dashboard_viewmodel.dart';
 import '../widgets/add_edit_record_bottom_sheet.dart';
@@ -23,7 +25,12 @@ import '../widgets/stale_rate_banner.dart';
 /// - Record List with [FIX-TIMESTAMP-RECORDLIST-1]: startDate formatted as DateFormat('dd/MM/yyyy, HH:mm').
 /// - FloatingActionButton opening AddEditRecordBottomSheet with live rate auto-fill.
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  final bool? showRecordList;
+
+  const DashboardScreen({
+    super.key,
+    this.showRecordList,
+  });
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -274,48 +281,100 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     const SizedBox(height: 20),
 
-                    // 7. Record List Header
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _currentTab == RecordType.GIVEN ? 'Active Loans Given' : 'Active Borrowings Taken',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.textPrimary,
+                    if (widget.showRecordList == true) ...[
+                      // 7. Record List Header
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _currentTab == RecordType.GIVEN ? 'Active Loans Given' : 'Active Borrowings Taken',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.textPrimary,
+                            ),
                           ),
-                        ),
-                        Text(
-                          '${filteredRecords.length} records',
-                          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-
-                    // 8. Record List Items with [FIX-TIMESTAMP-RECORDLIST-1]
-                    if (filteredRecords.isEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(vertical: 32),
-                        alignment: Alignment.center,
-                        child: Text(
-                          _searchQuery.isNotEmpty
-                              ? 'No records matching "$_searchQuery"'
-                              : 'No active ${_currentTab == RecordType.GIVEN ? 'given loans' : 'taken borrowings'}',
-                          style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
-                        ),
-                      )
-                    else
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: filteredRecords.length,
-                        itemBuilder: (context, index) {
-                          final record = filteredRecords[index];
-                          return _buildRecordRow(record);
-                        },
+                          Text(
+                            '${filteredRecords.length} records',
+                            style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                          ),
+                        ],
                       ),
+                      const SizedBox(height: 8),
+
+                      // 8. Record List Items with [FIX-TIMESTAMP-RECORDLIST-1]
+                      if (filteredRecords.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 32),
+                          alignment: Alignment.center,
+                          child: Text(
+                            _searchQuery.isNotEmpty
+                                ? 'No records matching "$_searchQuery"'
+                                : 'No active ${_currentTab == RecordType.GIVEN ? 'given loans' : 'taken borrowings'}',
+                            style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                          ),
+                        )
+                      else
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: filteredRecords.length,
+                          itemBuilder: (context, index) {
+                            final record = filteredRecords[index];
+                            return _buildRecordRow(record);
+                          },
+                        ),
+                    ] else ...[
+                      // Customer Accounts & Ledger shortcut (Records managed in Customers tab)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppTheme.cardDark,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.borderDark),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.people_alt_outlined, color: AppTheme.gold, size: 20),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Customer Accounts & Ledgers',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Individual customer loans and financier borrowings are organized under their respective customer profiles in the Customers tab.',
+                              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  AppNavigator.navigate(context, const CustomersRoute());
+                                },
+                                icon: const Icon(Icons.arrow_forward, size: 16),
+                                label: const Text('View Customer Accounts'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppTheme.gold,
+                                  side: BorderSide(color: AppTheme.gold.withValues(alpha: 0.5)),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 );
               },
@@ -424,7 +483,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 border: Border.all(color: AppTheme.borderDark),
               ),
               child: Text(
-                record.transactionId,
+                AppIdFormatter.formatTransactionId(record.transactionId),
                 style: const TextStyle(fontSize: 11, color: AppTheme.gold, fontWeight: FontWeight.w600),
               ),
             ),
@@ -447,6 +506,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       color: AppTheme.textSecondary,
                       fontWeight: FontWeight.w500,
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '•  ${AppDateFormatter.formatMonths(financials.months)}',
+                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                   ),
                   const SizedBox(width: 8),
                   Text(
@@ -707,7 +771,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Text(
-                '${risk.record.customerId} • ${risk.record.transactionId}',
+                '${AppIdFormatter.formatCustomerId(risk.record.customerId)} • ${AppIdFormatter.formatTransactionId(risk.record.transactionId)}',
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppTheme.textSecondary,

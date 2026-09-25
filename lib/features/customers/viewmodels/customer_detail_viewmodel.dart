@@ -3,17 +3,25 @@ import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../domain/domain.dart';
 
-/// Item in the customer ledger history pairing a record with its calculated financials
-/// and resolved profit state.
+/// Item in the customer ledger history pairing a record with its calculated financials,
+/// resolved profit state, and linked loan/borrowing associations.
 class CustomerLedgerRecordItem {
   final LedgerRecord record;
   final Financials financials;
   final ProfitState profitState;
+  final LedgerRecord? linkedRecord;
+  final String? linkedCustomerName;
+  final String? linkedCustomerDisplayId;
+  final List<LedgerRecord>? linkedTakens;
 
   const CustomerLedgerRecordItem({
     required this.record,
     required this.financials,
     required this.profitState,
+    this.linkedRecord,
+    this.linkedCustomerName,
+    this.linkedCustomerDisplayId,
+    this.linkedTakens = const [],
   });
 }
 
@@ -127,34 +135,59 @@ class CustomerDetailNotifier {
       final targetDate = _clock();
       final List<CustomerLedgerRecordItem> items = [];
 
+      List<LedgerRecord> allRecords = [];
+      List<Customer> allCustomers = [];
+      try {
+        allRecords = await _recordRepository.getAllRecordsOnce();
+      } catch (_) {}
+      try {
+        allCustomers = await _customerRepository.getAllCustomersOnce();
+      } catch (_) {}
+
       for (final r in rawRecords) {
         final financials = CalculationEngine.calculateRecordFinancials(r, targetDate);
 
         // Resolve ProfitState in Notifier (§10.2)
         ProfitState profitState = const NoProfit();
+        LedgerRecord? linkedRecord;
+        String? linkedCustName;
+        String? linkedCustDisplayId;
+        List<LedgerRecord> linkedTakens = [];
+
         if (r.isTaken && r.linkedRecordId != null && r.linkedRecordId!.isNotEmpty) {
           try {
-            final linkedGiven = await _recordRepository.getRecordById(r.linkedRecordId!);
-            if (linkedGiven != null) {
-              final givenFin = CalculationEngine.calculateRecordFinancials(linkedGiven, targetDate);
+            linkedRecord = allRecords.where((rec) => rec.id == r.linkedRecordId).firstOrNull;
+            linkedRecord ??= await _recordRepository.getRecordById(r.linkedRecordId!);
+            if (linkedRecord != null) {
+              final givenFin = CalculationEngine.calculateRecordFinancials(linkedRecord, targetDate);
               final profit = CalculationEngine.calculateNetProfit(givenFin, financials);
 
-              if (linkedGiven.isActive) {
+              if (linkedRecord.isActive) {
                 profitState = InterimProfit(profit);
-              } else if (linkedGiven.isSettled) {
+              } else if (linkedRecord.isSettled) {
                 profitState = NetProfit(profit);
               }
+
+              final linkedCust = allCustomers.where((c) => c.id == linkedRecord!.customerId).firstOrNull;
+              linkedCustName = linkedCust?.name;
+              linkedCustDisplayId = linkedCust?.displayId;
             }
           } catch (_) {
             // Never crash on broken FK (§10.2)
             profitState = const NoProfit();
           }
+        } else if (r.isGiven) {
+          linkedTakens = allRecords.where((t) => t.isTaken && t.linkedRecordId == r.id).toList();
         }
 
         items.add(CustomerLedgerRecordItem(
           record: r,
           financials: financials,
           profitState: profitState,
+          linkedRecord: linkedRecord,
+          linkedCustomerName: linkedCustName,
+          linkedCustomerDisplayId: linkedCustDisplayId,
+          linkedTakens: linkedTakens,
         ));
       }
 

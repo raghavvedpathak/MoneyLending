@@ -3,6 +3,7 @@ import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
+import '../../../core/ui/formatters/id_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
@@ -139,7 +140,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: AppTheme.badgeDecoration(AppTheme.gold, borderRadius: 8),
                       child: Text(
-                        customer.displayId,
+                        AppIdFormatter.formatCustomerId(customer.displayId),
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: AppTheme.gold,
@@ -249,7 +250,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                           decoration: AppTheme.badgeDecoration(AppTheme.gold),
                                           child: Text(
-                                            r.transactionId,
+                                            AppIdFormatter.formatTransactionId(r.transactionId),
                                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.gold),
                                           ),
                                         ),
@@ -275,7 +276,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'Started ${AppDateFormatter.formatDate(r.startDate)}',
+                                      'Started ${AppDateFormatter.formatDate(r.startDate)} • ${AppDateFormatter.formatMonths(CalculationEngine.calculateRecordFinancials(r, DateTime.now()).months)}',
                                       style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                                     ),
                                   ],
@@ -406,7 +407,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                 children: [
                                   const SizedBox(height: 2),
                                   Text(
-                                    customer.displayId,
+                                    AppIdFormatter.formatCustomerId(customer.displayId),
                                     style: const TextStyle(
                                       color: AppTheme.gold,
                                       fontWeight: FontWeight.bold,

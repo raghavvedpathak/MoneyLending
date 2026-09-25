@@ -283,6 +283,7 @@ class DatabaseHelper {
     final startYear = (month >= 4 ? year : year - 1) % 100;
     final endYear = (month >= 4 ? year + 1 : year) % 100;
     final prefix = 'CUST${startYear.toString().padLeft(2, '0')}-${endYear.toString().padLeft(2, '0')}-';
+    final altPrefix = 'CUST-${startYear.toString().padLeft(2, '0')}/${endYear.toString().padLeft(2, '0')}-';
 
     final result = await db.rawQuery(
       'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM customers WHERE displayId LIKE ?',
@@ -294,6 +295,17 @@ class DatabaseHelper {
       maxCust = (result.first['maxSeq'] as num).toInt();
     }
 
+    try {
+      final altResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM customers WHERE displayId LIKE ?',
+        [altPrefix.length + 1, '$altPrefix%'],
+      );
+      if (altResult.isNotEmpty && altResult.first['maxSeq'] != null) {
+        final val = (altResult.first['maxSeq'] as num).toInt();
+        if (val > maxCust) maxCust = val;
+      }
+    } catch (_) {}
+
     int maxRetired = 0;
     try {
       final retiredResult = await db.rawQuery(
@@ -302,6 +314,17 @@ class DatabaseHelper {
       );
       if (retiredResult.isNotEmpty && retiredResult.first['maxSeq'] != null) {
         maxRetired = (retiredResult.first['maxSeq'] as num).toInt();
+      }
+    } catch (_) {}
+
+    try {
+      final altRetiredResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM retired_ids WHERE kind = ? AND displayId LIKE ?',
+        [altPrefix.length + 1, 'customer', '$altPrefix%'],
+      );
+      if (altRetiredResult.isNotEmpty && altRetiredResult.first['maxSeq'] != null) {
+        final val = (altRetiredResult.first['maxSeq'] as num).toInt();
+        if (val > maxRetired) maxRetired = val;
       }
     } catch (_) {}
 
@@ -360,6 +383,7 @@ class DatabaseHelper {
     final month = refDate.month.toString().padLeft(2, '0');
     final year = (refDate.year % 100).toString().padLeft(2, '0');
     final prefix = 'TRAN$month$year';
+    final altPrefix = 'TRAN-$month$year';
 
     final result = await db.rawQuery(
       'SELECT MAX(CAST(SUBSTR(transactionId, ?) AS INTEGER)) as maxSeq FROM records WHERE transactionId LIKE ?',
@@ -371,6 +395,17 @@ class DatabaseHelper {
       maxRecord = (result.first['maxSeq'] as num).toInt();
     }
 
+    try {
+      final altResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(transactionId, ?) AS INTEGER)) as maxSeq FROM records WHERE transactionId LIKE ?',
+        [altPrefix.length + 1, '$altPrefix%'],
+      );
+      if (altResult.isNotEmpty && altResult.first['maxSeq'] != null) {
+        final val = (altResult.first['maxSeq'] as num).toInt();
+        if (val > maxRecord) maxRecord = val;
+      }
+    } catch (_) {}
+
     int maxRetired = 0;
     try {
       final retiredResult = await db.rawQuery(
@@ -379,6 +414,17 @@ class DatabaseHelper {
       );
       if (retiredResult.isNotEmpty && retiredResult.first['maxSeq'] != null) {
         maxRetired = (retiredResult.first['maxSeq'] as num).toInt();
+      }
+    } catch (_) {}
+
+    try {
+      final altRetired = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM retired_ids WHERE kind = ? AND displayId LIKE ?',
+        [altPrefix.length + 1, 'transaction', '$altPrefix%'],
+      );
+      if (altRetired.isNotEmpty && altRetired.first['maxSeq'] != null) {
+        final val = (altRetired.first['maxSeq'] as num).toInt();
+        if (val > maxRetired) maxRetired = val;
       }
     } catch (_) {}
 
@@ -395,6 +441,7 @@ class DatabaseHelper {
     final month = refDate.month.toString().padLeft(2, '0');
     final year = (refDate.year % 100).toString().padLeft(2, '0');
     final prefix = 'PAY$month$year';
+    final altPrefix = 'PAY-$month$year';
 
     int maxPayment = 0;
     try {
@@ -408,6 +455,17 @@ class DatabaseHelper {
       }
     } catch (_) {}
 
+    try {
+      final altResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(paymentId, ?) AS INTEGER)) as maxSeq FROM payments WHERE paymentId LIKE ?',
+        [altPrefix.length + 1, '$altPrefix%'],
+      );
+      if (altResult.isNotEmpty && altResult.first['maxSeq'] != null) {
+        final val = (altResult.first['maxSeq'] as num).toInt();
+        if (val > maxPayment) maxPayment = val;
+      }
+    } catch (_) {}
+
     int maxRetired = 0;
     try {
       final retiredResult = await db.rawQuery(
@@ -416,6 +474,17 @@ class DatabaseHelper {
       );
       if (retiredResult.isNotEmpty && retiredResult.first['maxSeq'] != null) {
         maxRetired = (retiredResult.first['maxSeq'] as num).toInt();
+      }
+    } catch (_) {}
+
+    try {
+      final altRetired = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM retired_ids WHERE kind = ? AND displayId LIKE ?',
+        [altPrefix.length + 1, 'payment', '$altPrefix%'],
+      );
+      if (altRetired.isNotEmpty && altRetired.first['maxSeq'] != null) {
+        final val = (altRetired.first['maxSeq'] as num).toInt();
+        if (val > maxRetired) maxRetired = val;
       }
     } catch (_) {}
 

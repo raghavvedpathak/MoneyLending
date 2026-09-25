@@ -1,12 +1,14 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
-import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
-import '../../../core/ui/formatters/currency_formatter.dart';
+import '../../../core/ui/formatters/id_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/ui/widgets/date_input_field.dart';
 import '../../../core/utils/uuid_generator.dart';
 import '../../../domain/domain.dart';
+import '../../../presentation/widgets/add_edit_collateral_dialog.dart';
+import '../../../presentation/widgets/collateral_item_tile.dart';
+import '../../../presentation/widgets/customer_picker_field.dart';
 
 class AddEntryScreen extends StatefulWidget {
   final RecordType initialType;
@@ -40,13 +42,6 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
 
   // Collateral Items
   final List<LedgerItem> _items = [];
-  final _itemNameController = TextEditingController();
-  final _itemDescriptionController = TextEditingController();
-  String _itemCategory = 'GOLD';
-  final _itemWeightController = TextEditingController();
-  final _itemPurityController = TextEditingController(text: '91.6');
-  final _itemRateController = TextEditingController();
-  final _itemLendPercentageController = TextEditingController(text: '75');
 
   bool _isSaving = false;
 
@@ -112,218 +107,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
   void dispose() {
     _principalController.dispose();
     _interestRateController.dispose();
-    _itemNameController.dispose();
-    _itemDescriptionController.dispose();
-    _itemWeightController.dispose();
-    _itemPurityController.dispose();
-    _itemRateController.dispose();
-    _itemLendPercentageController.dispose();
     super.dispose();
-  }
-
-  void _addCollateralItem() {
-    final name = _itemNameController.text.trim();
-    final weight = double.tryParse(_itemWeightController.text.trim()) ?? 0.0;
-    final purity = double.tryParse(_itemPurityController.text.trim()) ?? 0.0;
-    final rate = double.tryParse(_itemRateController.text.trim()) ?? 0.0;
-    final desc = _itemDescriptionController.text.trim();
-    final lendPct = double.tryParse(_itemLendPercentageController.text.trim()) ?? 75.0;
-
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an item name')),
-      );
-      return;
-    }
-
-    final double effectivePurity = purity > 0 ? purity : 100.0;
-    final itemValue = CalculationEngine.roundMoney(weight * (effectivePurity / 100.0) * rate);
-    final lendable = CalculationEngine.roundMoney(itemValue * (lendPct / 100.0));
-
-    final newItem = LedgerItem(
-      id: AppUuid.generate(),
-      recordId: '',
-      name: name,
-      itemCategory: _itemCategory,
-      description: desc.isNotEmpty ? desc : null,
-      weight: weight > 0 ? weight : 0.0,
-      purity: effectivePurity,
-      rate: rate > 0 ? rate : 0.0,
-      itemValue: itemValue,
-      lendPercentage: lendPct,
-      lendableAmount: lendable,
-    );
-
-    setState(() {
-      _items.add(newItem);
-      _itemNameController.clear();
-      _itemDescriptionController.clear();
-      _itemWeightController.clear();
-      _itemPurityController.text = _itemCategory == 'GOLD' ? '91.6' : (_itemCategory == 'SILVER' ? '92.5' : '100');
-      _itemRateController.clear();
-    });
-    Navigator.of(context).pop();
-  }
-
-  void _showAddCollateralDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Add Collateral Item'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: _itemNameController,
-                  decoration: const InputDecoration(labelText: 'Item Name (e.g. Gold Chain) *'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  key: ValueKey('category_$_itemCategory'),
-                  initialValue: _itemCategory,
-                  isExpanded: true,
-                  dropdownColor: AppTheme.cardDark,
-                  menuMaxHeight: 350,
-                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-                  icon: const Icon(Icons.arrow_drop_down, color: AppTheme.gold),
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: const [
-                    DropdownMenuItem(value: 'GOLD', child: Text('Gold', style: TextStyle(color: AppTheme.textPrimary))),
-                    DropdownMenuItem(value: 'SILVER', child: Text('Silver', style: TextStyle(color: AppTheme.textPrimary))),
-                    DropdownMenuItem(value: 'PLATINUM', child: Text('Platinum', style: TextStyle(color: AppTheme.textPrimary))),
-                    DropdownMenuItem(value: 'BRONZE', child: Text('Bronze', style: TextStyle(color: AppTheme.textPrimary))),
-                    DropdownMenuItem(value: 'VEHICLE', child: Text('Vehicle / Property', style: TextStyle(color: AppTheme.textPrimary))),
-                    DropdownMenuItem(value: 'OTHER', child: Text('Other Item', style: TextStyle(color: AppTheme.textPrimary))),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) {
-                      setDialogState(() {
-                        _itemCategory = val;
-                        if (val == 'GOLD') {
-                          _itemPurityController.text = '91.6';
-                        } else if (val == 'SILVER') {
-                          _itemPurityController.text = '92.5';
-                        } else {
-                          _itemPurityController.text = '100';
-                        }
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _itemDescriptionController,
-                  decoration: const InputDecoration(labelText: 'Description / Remarks (Optional)'),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _itemWeightController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'Weight (g) *'),
-                        onChanged: (_) => setDialogState(() {}),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _itemPurityController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'Purity (%) *'),
-                        onChanged: (_) => setDialogState(() {}),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _itemRateController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'Rate / g (₹) *'),
-                        onChanged: (_) => setDialogState(() {}),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _itemLendPercentageController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'LTV %', suffixText: '%'),
-                        onChanged: (_) => setDialogState(() {}),
-                      ),
-                    ),
-                  ],
-                ),
-                Builder(
-                  builder: (context) {
-                    final w = double.tryParse(_itemWeightController.text.trim()) ?? 0.0;
-                    final p = double.tryParse(_itemPurityController.text.trim()) ?? 0.0;
-                    final r = double.tryParse(_itemRateController.text.trim()) ?? 0.0;
-                    final lPct = double.tryParse(_itemLendPercentageController.text.trim()) ?? 75.0;
-                    if (w <= 0) return const SizedBox.shrink();
-
-                    final effPurity = p > 0 ? p : 100.0;
-                    final fineWeight = w * (effPurity / 100.0);
-                    final itemVal = fineWeight * r;
-                    final maxLendable = itemVal * (lPct / 100.0);
-
-                    return Container(
-                      margin: const EdgeInsets.only(top: 12),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.subCardDark,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppTheme.borderDark),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          Column(
-                            children: [
-                              const Text('Fine Wt', style: TextStyle(fontSize: 10, color: AppTheme.textMuted)),
-                              Text('${fineWeight.toStringAsFixed(2)}g', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
-                            ],
-                          ),
-                          Column(
-                            children: [
-                              const Text('Valuation', style: TextStyle(fontSize: 10, color: AppTheme.textMuted)),
-                              Text(CurrencyFormatter.format(itemVal), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.gold)),
-                            ],
-                          ),
-                          Column(
-                            children: [
-                              const Text('Max Lend', style: TextStyle(fontSize: 10, color: AppTheme.textMuted)),
-                              Text(CurrencyFormatter.format(maxLendable), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: _addCollateralItem,
-              child: const Text('Add Item'),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   void _showQuickAddCustomerDialog() {
@@ -414,37 +198,6 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
       return;
     }
 
-    // Auto-commit any item the user was typing before saving
-    final pendingName = _itemNameController.text.trim();
-    if (pendingName.isNotEmpty) {
-      final weight = double.tryParse(_itemWeightController.text.trim()) ?? 0.0;
-      final purity = double.tryParse(_itemPurityController.text.trim()) ?? 0.0;
-      final itemRate = double.tryParse(_itemRateController.text.trim()) ?? 0.0;
-      final desc = _itemDescriptionController.text.trim();
-      final lendPct = double.tryParse(_itemLendPercentageController.text.trim()) ?? 75.0;
-
-      final double effectivePurity = purity > 0 ? purity : 100.0;
-      final double itemVal = CalculationEngine.roundMoney(weight * (effectivePurity / 100.0) * itemRate);
-      final double lendable = CalculationEngine.roundMoney(itemVal * (lendPct / 100.0));
-
-      _items.add(LedgerItem(
-        id: AppUuid.generate(),
-        recordId: '',
-        name: pendingName,
-        itemCategory: _itemCategory,
-        description: desc.isNotEmpty ? desc : null,
-        weight: weight,
-        purity: effectivePurity,
-        rate: itemRate,
-        itemValue: itemVal,
-        lendPercentage: lendPct,
-        lendableAmount: lendable,
-      ));
-      _itemNameController.clear();
-      _itemDescriptionController.clear();
-      _itemWeightController.clear();
-    }
-
     setState(() => _isSaving = true);
 
     try {
@@ -529,43 +282,13 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                           ? uniqueMap[_selectedCustomer!.id]
                           : null;
 
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<Customer>(
-                              key: ValueKey('add_entry_cust_${currentSelection?.id ?? 'none'}'),
-                              initialValue: currentSelection,
-                              isExpanded: true,
-                              dropdownColor: AppTheme.cardDark,
-                              menuMaxHeight: 350,
-                              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-                              icon: const Icon(Icons.arrow_drop_down, color: AppTheme.gold),
-                              hint: const Text('Select a customer', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
-                              decoration: const InputDecoration(
-                                labelText: 'Customer *',
-                                prefixIcon: Icon(Icons.person_rounded, color: AppTheme.gold),
-                              ),
-                              items: customerList.map((c) {
-                                return DropdownMenuItem<Customer>(
-                                  value: c,
-                                  child: Text(
-                                    '${c.name} (${c.displayId})',
-                                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (c) => setState(() => _selectedCustomer = c),
-                              validator: (c) => c == null ? 'Please select a customer' : null,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton.filledTonal(
-                            icon: const Icon(Icons.person_add_rounded),
-                            tooltip: 'Quick Add Customer',
-                            onPressed: _showQuickAddCustomerDialog,
-                          ),
-                        ],
+                      return CustomerPickerField(
+                        key: ValueKey('add_entry_cust_${currentSelection?.id ?? 'none'}'),
+                        customers: customerList,
+                        selectedCustomer: currentSelection,
+                        onChanged: (c) => setState(() => _selectedCustomer = c),
+                        onQuickAddCustomer: _showQuickAddCustomerDialog,
+                        validator: (c) => c == null ? 'Please select a customer' : null,
                       );
                     },
                   ),
@@ -634,7 +357,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                                 return DropdownMenuItem<String?>(
                                   value: g.id,
                                   child: Text(
-                                    '${g.transactionId} (${g.customerName ?? "Customer"}) - ₹${g.principalAmount.toStringAsFixed(0)}$itemInfo',
+                                    '${AppIdFormatter.formatTransactionId(g.transactionId)} (${g.customerName ?? "Customer"}) - ₹${g.principalAmount.toStringAsFixed(0)}$itemInfo',
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(color: AppTheme.textPrimary),
                                   ),
@@ -750,83 +473,79 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Collateral Items (${_items.length})',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      Row(
+                        children: [
+                          const Icon(Icons.shield_outlined, size: 18, color: AppTheme.gold),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Collateral Items (${_items.length})',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ],
                       ),
-                      TextButton.icon(
-                        onPressed: _showAddCollateralDialog,
-                        icon: const Icon(Icons.add_circle_outline),
-                        label: const Text('Add Collateral'),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          AddEditCollateralDialog.show(
+                            context,
+                            onSave: (newItem) {
+                              setState(() => _items.add(newItem));
+                            },
+                          );
+                        },
+                        icon: const Icon(Icons.add, size: 16),
+                        label: const Text('Add Collateral Item'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.gold,
+                          side: const BorderSide(color: AppTheme.gold),
+                          visualDensity: VisualDensity.compact,
+                        ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 10),
                   if (_items.isEmpty)
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
                       decoration: AppTheme.emptyStateDecoration,
-                      child: const Text(
-                        'No collateral items added yet. Click "Add Collateral" for gold/silver pledges.',
-                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                        textAlign: TextAlign.center,
+                      child: Column(
+                        children: [
+                          const Icon(Icons.security_outlined, size: 36, color: AppTheme.textMuted),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'No collateral items added yet (Unsecured / Direct Loan)',
+                            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Click "+ Add Collateral Item" for gold, silver or other pledges.',
+                            style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
                     )
                   else
-                    ..._items.map((item) => Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  item.itemCategory == 'GOLD'
-                                      ? Icons.monetization_on
-                                      : Icons.shield_outlined,
-                                  color: AppTheme.gold,
-                                  size: 24,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                          const SizedBox(width: 6),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                            decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                                            child: Text(
-                                              item.itemCategory,
-                                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.gold),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      if (item.description != null && item.description!.isNotEmpty) ...[
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          item.description!,
-                                          style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: AppTheme.textMuted),
-                                        ),
-                                      ],
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '${item.weight}g · ${item.purity}% purity (${item.fineWeight.toStringAsFixed(2)}g fine) · Val: ${CurrencyFormatter.format(item.itemValue)} · Max Lend: ${CurrencyFormatter.format(item.lendableAmount)}',
-                                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: AppTheme.rose),
-                                  onPressed: () => setState(() => _items.remove(item)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )),
+                    ..._items.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final item = entry.value;
+                      return CollateralItemTile(
+                        item: item,
+                        onEdit: () {
+                          AddEditCollateralDialog.show(
+                            context,
+                            initialItem: item,
+                            onSave: (updated) {
+                              setState(() => _items[idx] = updated);
+                            },
+                          );
+                        },
+                        onDelete: () {
+                          setState(() => _items.removeAt(idx));
+                        },
+                      );
+                    }),
                   const SizedBox(height: 32),
 
                   // Submit Button

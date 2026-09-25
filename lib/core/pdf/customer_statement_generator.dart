@@ -3,6 +3,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../../domain/domain.dart';
 import '../calculations/calculation_engine.dart';
+import '../ui/formatters/id_formatter.dart';
 import '../utils/app_date_formatter.dart';
 import 'pdf_fonts.dart';
 
@@ -135,7 +136,7 @@ class CustomerStatementReport {
                       ),
                       pw.SizedBox(height: 2),
                       pw.Text(
-                        'Customer ID: ${customer.displayId}',
+                        'Customer ID: ${AppIdFormatter.formatCustomerId(customer.displayId)}',
                         style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9.5, color: PdfColors.blueGrey800),
                       ),
                     ],
@@ -300,7 +301,7 @@ class CustomerStatementReport {
                       style: const pw.TextStyle(color: PdfColors.grey300, fontSize: 8.5),
                     ),
                     pw.Text(
-                      record.transactionId,
+                      AppIdFormatter.formatTransactionId(record.transactionId),
                       style: pw.TextStyle(
                         color: PdfColors.white,
                         fontWeight: pw.FontWeight.bold,
@@ -315,7 +316,7 @@ class CustomerStatementReport {
                   ],
                 ),
                 pw.Text(
-                  '${record.isGiven ? "Given" : "Taken"}: ${AppDateFormatter.formatDate(record.startDate)}'
+                  '${record.isGiven ? "Given" : "Taken"}: ${AppDateFormatter.formatDate(record.startDate)} • ${AppDateFormatter.formatMonths(fin.months)}'
                   '${record.endDate != null ? " | Due: ${AppDateFormatter.formatDate(record.endDate!)}" : ""}'
                   '${record.settledDate != null ? " | Settled: ${AppDateFormatter.formatDate(record.settledDate!)}" : ""}',
                   style: pw.TextStyle(
@@ -335,7 +336,7 @@ class CustomerStatementReport {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.TableHelper.fromTextArray(
-                  headers: ['Collateral Item Details', 'Principal', 'Interest Rate', 'Accrued Interest', 'Total Due'],
+                  headers: ['Collateral Item Details', 'Principal', 'Interest Rate', 'Accrued (${AppDateFormatter.formatMonths(fin.months)})', 'Total Due'],
                   data: [
                     [
                       itemDetails,
@@ -363,14 +364,15 @@ class CustomerStatementReport {
                 // payment date (formatDate(), e.g. "5 August 2026"), payment ID (e.g. PAY092601), amount, interest, principal
                 if (record.payments.isNotEmpty) ...[
                   pw.Text(
-                    'Payment History for ${record.transactionId}:',
+                    'Payment History for ${AppIdFormatter.formatTransactionId(record.transactionId)}:',
                     style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800),
                   ),
                   pw.SizedBox(height: 3),
                   pw.TableHelper.fromTextArray(
                     headers: ['Payment Date', 'Payment ID', 'Amount Paid', 'Interest Portion', 'Principal Portion', 'Notes'],
                     data: record.payments.map((p) {
-                      final paymentDisplayId = p.paymentId.isNotEmpty ? p.paymentId : (p.id.isNotEmpty ? p.id : '-');
+                      final rawPaymentId = p.paymentId.isNotEmpty ? p.paymentId : (p.id.isNotEmpty ? p.id : '-');
+                      final paymentDisplayId = rawPaymentId != '-' ? AppIdFormatter.formatPaymentId(rawPaymentId) : '-';
                       return [
                         AppDateFormatter.formatDate(p.date),
                         paymentDisplayId,

@@ -1,12 +1,14 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
-import '../../core/calculations/calculations.dart';
 import '../../core/di/injection.dart';
-import '../../core/ui/formatters/currency_formatter.dart';
+import '../../core/ui/formatters/id_formatter.dart';
 import '../../core/ui/theme/app_theme.dart';
 import '../../core/ui/widgets/date_input_field.dart';
 import '../../core/utils/uuid_generator.dart';
 import '../../domain/domain.dart';
+import 'add_edit_collateral_dialog.dart';
+import 'collateral_item_tile.dart';
+import 'customer_picker_field.dart';
 
 /// Modal bottom sheet for adding or editing a record (§10.1).
 ///
@@ -62,14 +64,6 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
 
   // Collateral Items
   final List<LedgerItem> _items = [];
-  final _itemNameController = TextEditingController();
-  final _itemDescriptionController = TextEditingController();
-  String _itemCategory = 'GOLD';
-  final _itemWeightController = TextEditingController();
-  final _itemPurityController = TextEditingController(text: '91.6');
-  final _itemRateController = TextEditingController();
-  final _itemLendPercentageController = TextEditingController(text: '75');
-
   List<ItemRate> _currentRates = [];
   bool _isSaving = false;
 
@@ -78,15 +72,7 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
     super.initState();
     _selectedType = widget.existingRecord?.type ?? widget.initialType;
     _linkedRecordId = widget.existingRecord?.linkedRecordId;
-    _itemWeightController.addListener(_onItemInputsChanged);
-    _itemPurityController.addListener(_onItemInputsChanged);
-    _itemRateController.addListener(_onItemInputsChanged);
-    _itemLendPercentageController.addListener(_onItemInputsChanged);
     _loadInitialData();
-  }
-
-  void _onItemInputsChanged() {
-    if (mounted) setState(() {});
   }
 
   Future<void> _loadInitialData() async {
@@ -119,8 +105,6 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
           } else {
             _interestRateController.text = settings.defaultInterestRate.toStringAsFixed(1);
           }
-
-          _autoFillRateForCategory(_itemCategory);
         });
       }
     } catch (_) {
@@ -152,96 +136,11 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
     );
   }
 
-  /// [FIX-RATE-ASOF-1] (Addendum J.10): Auto-fills rate with the rate that was in force
-  /// on the record's date via ItemRateRepository.getRateAsOf(category, recordDate);
-  /// for a record dated today, that is simply the current rate.
-  Future<void> _autoFillRateForCategory(String category) async {
-    try {
-      final itemRateRepo = sl<ItemRateRepository>();
-      final rateAsOf = await itemRateRepo.getRateAsOf(category, _startDate);
-      if (rateAsOf != null && rateAsOf.ratePerUnit > 0) {
-        if (mounted) {
-          _itemRateController.text = rateAsOf.ratePerUnit.toStringAsFixed(
-            rateAsOf.ratePerUnit.truncateToDouble() == rateAsOf.ratePerUnit ? 0 : 2,
-          );
-        }
-        return;
-      }
-    } catch (_) {}
-
-    for (final r in _currentRates) {
-      if (r.itemCategory.trim().toUpperCase() == category.trim().toUpperCase()) {
-        if (r.ratePerUnit > 0) {
-          if (mounted) {
-            _itemRateController.text = r.ratePerUnit.toStringAsFixed(
-              r.ratePerUnit.truncateToDouble() == r.ratePerUnit ? 0 : 2,
-            );
-          }
-          return;
-        }
-      }
-    }
-  }
-
   @override
   void dispose() {
     _principalController.dispose();
     _interestRateController.dispose();
-    _itemNameController.dispose();
-    _itemDescriptionController.dispose();
-    _itemWeightController.dispose();
-    _itemPurityController.dispose();
-    _itemRateController.dispose();
-    _itemLendPercentageController.dispose();
     super.dispose();
-  }
-
-  void _addCollateralItem() {
-    final name = _itemNameController.text.trim();
-    final weight = double.tryParse(_itemWeightController.text.trim()) ?? 0.0;
-    final purity = double.tryParse(_itemPurityController.text.trim()) ?? 0.0;
-    final rate = double.tryParse(_itemRateController.text.trim()) ?? 0.0;
-    final desc = _itemDescriptionController.text.trim();
-    final lendPct = double.tryParse(_itemLendPercentageController.text.trim()) ?? 75.0;
-
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an item name')),
-      );
-      return;
-    }
-    if (weight <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Weight must be greater than zero')),
-      );
-      return;
-    }
-
-    final double effectivePurity = purity > 0 ? purity : 100.0;
-    final double itemVal = CalculationEngine.roundMoney(weight * (effectivePurity / 100.0) * rate);
-    final double lendable = CalculationEngine.roundMoney(itemVal * (lendPct / 100.0));
-
-    final item = LedgerItem(
-      id: AppUuid.generate(),
-      recordId: widget.existingRecord?.id ?? '',
-      name: name,
-      itemCategory: _itemCategory,
-      description: desc.isNotEmpty ? desc : null,
-      weight: weight,
-      purity: effectivePurity,
-      rate: rate,
-      itemValue: itemVal,
-      lendPercentage: lendPct,
-      lendableAmount: lendable,
-    );
-
-    setState(() {
-      _items.add(item);
-      _itemNameController.clear();
-      _itemDescriptionController.clear();
-      _itemWeightController.clear();
-      _autoFillRateForCategory(_itemCategory);
-    });
   }
 
   Future<void> _saveRecord() async {
@@ -265,37 +164,6 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
         const SnackBar(content: Text('Principal amount must be greater than 0')),
       );
       return;
-    }
-
-    // Auto-commit any item the user was typing in the sub-form before clicking Create/Save
-    final pendingName = _itemNameController.text.trim();
-    if (pendingName.isNotEmpty) {
-      final weight = double.tryParse(_itemWeightController.text.trim()) ?? 0.0;
-      final purity = double.tryParse(_itemPurityController.text.trim()) ?? 0.0;
-      final itemRate = double.tryParse(_itemRateController.text.trim()) ?? 0.0;
-      final desc = _itemDescriptionController.text.trim();
-      final lendPct = double.tryParse(_itemLendPercentageController.text.trim()) ?? 75.0;
-
-      final double effectivePurity = purity > 0 ? purity : 100.0;
-      final double itemVal = CalculationEngine.roundMoney(weight * (effectivePurity / 100.0) * itemRate);
-      final double lendable = CalculationEngine.roundMoney(itemVal * (lendPct / 100.0));
-
-      _items.add(LedgerItem(
-        id: AppUuid.generate(),
-        recordId: widget.existingRecord?.id ?? '',
-        name: pendingName,
-        itemCategory: _itemCategory,
-        description: desc.isNotEmpty ? desc : null,
-        weight: weight,
-        purity: effectivePurity,
-        rate: itemRate,
-        itemValue: itemVal,
-        lendPercentage: lendPct,
-        lendableAmount: lendable,
-      ));
-      _itemNameController.clear();
-      _itemDescriptionController.clear();
-      _itemWeightController.clear();
     }
 
     setState(() => _isSaving = true);
@@ -436,18 +304,9 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
                   if (_isLoadingCustomers)
                     const Center(child: CircularProgressIndicator())
                   else
-                    DropdownButtonFormField<Customer>(
-                      initialValue: _selectedCustomer,
-                      decoration: const InputDecoration(
-                        labelText: 'Customer *',
-                        prefixIcon: Icon(Icons.person_outline, color: AppTheme.gold),
-                      ),
-                      items: _customers.map((c) {
-                        return DropdownMenuItem(
-                          value: c,
-                          child: Text('${c.name} (${c.displayId})'),
-                        );
-                      }).toList(),
+                    CustomerPickerField(
+                      customers: _customers,
+                      selectedCustomer: _selectedCustomer,
                       onChanged: (c) => setState(() => _selectedCustomer = c),
                       validator: (val) => val == null ? 'Please select a customer' : null,
                     ),
@@ -516,7 +375,7 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
                                 return DropdownMenuItem<String?>(
                                   value: g.id,
                                   child: Text(
-                                    '${g.transactionId} (${g.customerName ?? "Customer"}) - ₹${g.principalAmount.toStringAsFixed(0)}$itemInfo',
+                                    '${AppIdFormatter.formatTransactionId(g.transactionId)} (${g.customerName ?? "Customer"}) - ₹${g.principalAmount.toStringAsFixed(0)}$itemInfo',
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(color: AppTheme.textPrimary),
                                   ),
@@ -623,7 +482,6 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
                     onDateChanged: (d) {
                       if (d != null) {
                         setState(() => _startDate = d);
-                        _autoFillRateForCategory(_itemCategory);
                       }
                     },
                   ),
@@ -633,264 +491,83 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Pledged Collateral Items',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      Row(
+                        children: [
+                          const Icon(Icons.shield_outlined, size: 18, color: AppTheme.gold),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Collateral Items (${_items.length})',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                          ),
+                        ],
                       ),
-                      Text(
-                        '${_items.length} items',
-                        style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          AddEditCollateralDialog.show(
+                            context,
+                            currentRates: _currentRates,
+                            onSave: (newItem) {
+                              setState(() => _items.add(newItem));
+                            },
+                          );
+                        },
+                        icon: const Icon(Icons.add, size: 16),
+                        label: const Text('Add Collateral Item'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.gold,
+                          side: const BorderSide(color: AppTheme.gold),
+                          visualDensity: VisualDensity.compact,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
 
-                  // Add Item Inputs
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.subCardDark,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.borderDark),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: TextField(
-                                controller: _itemNameController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Item Name *',
-                                  hintText: 'e.g. Gold Necklace',
-                                  isDense: true,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              flex: 1,
-                              child: DropdownButtonFormField<String>(
-                                initialValue: _itemCategory,
-                                isDense: true,
-                                decoration: const InputDecoration(labelText: 'Category'),
-                                items: const [
-                                  DropdownMenuItem(value: 'GOLD', child: Text('GOLD')),
-                                  DropdownMenuItem(value: 'SILVER', child: Text('SILVER')),
-                                  DropdownMenuItem(value: 'PLATINUM', child: Text('PLATINUM')),
-                                  DropdownMenuItem(value: 'BRONZE', child: Text('BRONZE')),
-                                  DropdownMenuItem(value: 'VEHICLE', child: Text('VEHICLE')),
-                                  DropdownMenuItem(value: 'OTHER', child: Text('OTHER')),
-                                ],
-                                onChanged: (cat) {
-                                  if (cat != null) {
-                                    setState(() {
-                                      _itemCategory = cat;
-                                      if (cat == 'GOLD') {
-                                        _itemPurityController.text = '91.6';
-                                      } else if (cat == 'SILVER') {
-                                        _itemPurityController.text = '92.5';
-                                      } else {
-                                        _itemPurityController.text = '100';
-                                      }
-                                      _autoFillRateForCategory(cat);
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _itemDescriptionController,
-                          decoration: const InputDecoration(
-                            labelText: 'Description / Remarks (Optional)',
-                            hintText: 'e.g. Hallmark 916, 2 bangles, stone weight',
-                            isDense: true,
+                  if (_items.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                      decoration: AppTheme.emptyStateDecoration,
+                      child: Column(
+                        children: [
+                          const Icon(Icons.security_outlined, size: 36, color: AppTheme.textMuted),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'No collateral items added yet (Unsecured / Direct Loan)',
+                            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
+                            textAlign: TextAlign.center,
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _itemWeightController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: 'Weight (g) *',
-                                  isDense: true,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _itemPurityController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: 'Purity (%) *',
-                                  isDense: true,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _itemRateController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: 'Rate / g (₹) *',
-                                  isDense: true,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _itemLendPercentageController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: 'LTV / Lend %',
-                                  suffixText: '%',
-                                  isDense: true,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        // Live Valuation & Lendable Preview
-                        Builder(
-                          builder: (context) {
-                            final w = double.tryParse(_itemWeightController.text.trim()) ?? 0.0;
-                            final p = double.tryParse(_itemPurityController.text.trim()) ?? 0.0;
-                            final r = double.tryParse(_itemRateController.text.trim()) ?? 0.0;
-                            final lPct = double.tryParse(_itemLendPercentageController.text.trim()) ?? 75.0;
-                            if (w <= 0) return const SizedBox.shrink();
-
-                            final effPurity = p > 0 ? p : 100.0;
-                            final fineWeight = w * (effPurity / 100.0);
-                            final itemVal = fineWeight * r;
-                            final maxLendable = itemVal * (lPct / 100.0);
-
-                            return Container(
-                              margin: const EdgeInsets.only(top: 8, bottom: 4),
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: AppTheme.cardDark,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppTheme.borderDark),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                children: [
-                                  Column(
-                                    children: [
-                                      const Text('Fine Wt', style: TextStyle(fontSize: 10, color: AppTheme.textMuted)),
-                                      Text('${fineWeight.toStringAsFixed(2)}g', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
-                                    ],
-                                  ),
-                                  Column(
-                                    children: [
-                                      const Text('Valuation', style: TextStyle(fontSize: 10, color: AppTheme.textMuted)),
-                                      Text(CurrencyFormatter.format(itemVal), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.gold)),
-                                    ],
-                                  ),
-                                  Column(
-                                    children: [
-                                      const Text('Max Lendable', style: TextStyle(fontSize: 10, color: AppTheme.textMuted)),
-                                      Text(CurrencyFormatter.format(maxLendable), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: _addCollateralItem,
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Add Collateral Item'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.gold,
-                              side: const BorderSide(color: AppTheme.gold),
-                            ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Click "+ Add Collateral Item" to attach gold, silver or other pledges.',
+                            style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                            textAlign: TextAlign.center,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Added Items List
-                  if (_items.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+                        ],
+                      ),
+                    )
+                  else
                     ..._items.asMap().entries.map((entry) {
                       final idx = entry.key;
                       final item = entry.value;
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.cardDark,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppTheme.borderDark),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        item.name,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                        decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                                        child: Text(
-                                          item.itemCategory,
-                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.gold),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (item.description != null && item.description!.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      item.description!,
-                                      style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: AppTheme.textMuted),
-                                    ),
-                                  ],
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${item.weight}g · ${item.purity}% purity (${item.fineWeight.toStringAsFixed(2)}g fine) · Val: ${CurrencyFormatter.format(item.itemValue)} · Max Lend: ${CurrencyFormatter.format(item.lendableAmount)}',
-                                    style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, color: AppTheme.rose, size: 20),
-                              onPressed: () => setState(() => _items.removeAt(idx)),
-                            ),
-                          ],
-                        ),
+                      return CollateralItemTile(
+                        item: item,
+                        currentRates: _currentRates,
+                        onEdit: () {
+                          AddEditCollateralDialog.show(
+                            context,
+                            initialItem: item,
+                            currentRates: _currentRates,
+                            onSave: (updated) {
+                              setState(() => _items[idx] = updated);
+                            },
+                          );
+                        },
+                        onDelete: () {
+                          setState(() => _items.removeAt(idx));
+                        },
                       );
                     }),
-                  ],
 
                   const SizedBox(height: 24),
 
@@ -904,13 +581,13 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                             )
-                          : const Icon(Icons.check_circle_outline, color: Colors.black),
+                          : const Icon(Icons.check_circle_outline, color: Colors.white),
                       label: Text(
                         widget.existingRecord != null ? 'Save Changes' : 'Create Record',
                         style: const TextStyle(
-                          color: Colors.black,
+                          color: Colors.white,
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),

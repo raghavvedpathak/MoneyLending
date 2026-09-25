@@ -311,7 +311,7 @@ void main() {
 
       await tester.pumpWidget(
         const MaterialApp(
-          home: DashboardScreen(),
+          home: DashboardScreen(showRecordList: true),
         ),
       );
 
@@ -320,7 +320,7 @@ void main() {
       // Verify that the record row displays '23 April 2026'
       expect(find.textContaining('23 April 2026'), findsOneWidget);
       expect(find.text('Ramesh Patel'), findsOneWidget);
-      expect(find.text('TRAN042601'), findsOneWidget);
+      expect(find.text('TRAN-042601'), findsOneWidget);
     });
 
     testWidgets(
@@ -357,7 +357,7 @@ void main() {
 
       await tester.pumpWidget(
         const MaterialApp(
-          home: DashboardScreen(),
+          home: DashboardScreen(showRecordList: true),
         ),
       );
 
@@ -365,7 +365,7 @@ void main() {
 
       expect(find.textContaining('5 October 2026'), findsOneWidget);
       expect(find.text('Suresh Kumar'), findsOneWidget);
-      expect(find.text('TRAN102602'), findsOneWidget);
+      expect(find.text('TRAN-102602'), findsOneWidget);
     });
   });
 }

@@ -4,10 +4,12 @@ import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
+import '../../../core/ui/formatters/id_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../../../presentation/widgets/add_edit_record_bottom_sheet.dart';
+import '../../../presentation/widgets/collateral_item_tile.dart';
 
 /// Full Record Detail Screen (:feature:customers) (§10.2).
 ///
@@ -117,7 +119,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Record'),
         content: Text(
-          'Are you sure you want to delete transaction ${_record!.transactionId}?\n\n'
+          'Are you sure you want to delete transaction ${AppIdFormatter.formatTransactionId(_record!.transactionId)}?\n\n'
           'This will permanently delete the record and its payments. '
           'The transaction ID and payment IDs will be permanently retired (FIX-ID-REUSE-1).',
         ),
@@ -143,7 +145,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
         await _recordRepository.forceDeleteRecord(_record!.id);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            AppTheme.successSnackBar('Record ${_record!.transactionId} deleted'),
+            AppTheme.successSnackBar('Record ${AppIdFormatter.formatTransactionId(_record!.transactionId)} deleted'),
           );
           Navigator.of(context).pop(true);
         }
@@ -168,7 +170,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Confirm Settlement'),
         content: Text(
-          'Settle transaction ${_record!.transactionId}?\n\n'
+          'Settle transaction ${AppIdFormatter.formatTransactionId(_record!.transactionId)}?\n\n'
           'Final Accrued Interest: ${CurrencyFormatter.format(financials.totalInterest)}\n'
           'Outstanding Balance Due: ${CurrencyFormatter.format(financials.totalDue)}',
         ),
@@ -190,7 +192,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
         await _recordRepository.settleRecord(_record!.id, financials.totalInterest);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            AppTheme.successSnackBar('Record ${_record!.transactionId} settled successfully'),
+            AppTheme.successSnackBar('Record ${AppIdFormatter.formatTransactionId(_record!.transactionId)} settled successfully'),
           );
           await _loadRecord();
         }
@@ -240,7 +242,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(record.transactionId),
+        title: Text(AppIdFormatter.formatTransactionId(record.transactionId)),
         actions: [
           // Edit action: hidden when settled (Addendum v1.2 items A–C)
           if (!isSettled)
@@ -291,7 +293,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      '${customer?.displayId ?? 'Customer'} • ${record.transactionId}',
+                      '${AppIdFormatter.formatCustomerId(customer?.displayId ?? 'Customer')} • ${AppIdFormatter.formatTransactionId(record.transactionId)}',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -372,6 +374,11 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                       AppDateFormatter.formatDate(record.startDate),
                       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Duration: ${AppDateFormatter.formatMonths(financials.months)}',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.gold, fontWeight: FontWeight.w600),
+                    ),
                     if (record.settledDate != null) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -422,7 +429,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(_linkedRecord!.transactionId, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.gold)),
+                          Text(AppIdFormatter.formatTransactionId(_linkedRecord!.transactionId), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.gold)),
                           const SizedBox(height: 2),
                           Text('Customer: ${_linkedRecord!.customerName ?? "Customer"}', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                         ],
@@ -442,7 +449,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.open_in_new, size: 14),
-                      label: Text('View Linked Customer Loan (${_linkedRecord!.transactionId})'),
+                      label: Text('View Linked Customer Loan (${AppIdFormatter.formatTransactionId(_linkedRecord!.transactionId)})'),
                       onPressed: () {
                         AppNavigator.navigate(context, RecordDetailRoute(_linkedRecord!.id, record: _linkedRecord));
                       },
@@ -493,7 +500,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(tk.transactionId, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
+                              Text(AppIdFormatter.formatTransactionId(tk.transactionId), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
                               Text('Lender: ${tk.customerName ?? "Lender"} • ${tk.interestRate}%/mo', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                             ],
                           ),
@@ -537,8 +544,9 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                 const Divider(height: 20),
                 _FinRow(label: 'Principal Amount', value: CurrencyFormatter.format(record.principalAmount)),
                 _FinRow(label: 'Interest Rate', value: '${record.interestRate}% / month'),
+                _FinRow(label: 'Duration / Tenure', value: AppDateFormatter.formatMonths(financials.months)),
                 _FinRow(
-                  label: 'Total Interest Accrued',
+                  label: 'Total Interest Accrued (${AppDateFormatter.formatMonths(financials.months)})',
                   value: CurrencyFormatter.format(financials.totalInterest),
                   highlightColor: AppTheme.gold,
                 ),
@@ -638,128 +646,13 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                         ],
                       ),
                       const Divider(height: 20),
-                      ...record.items.map((item) {
-                        final itemLiveRate = CalculationEngine.getUsableRate(_currentRates, item.itemCategory);
-                        final liveVal = CalculationEngine.calculateLiveItemValue(item, _currentRates);
-                        final lendingVal = item.itemValue > 0 ? item.itemValue : CalculationEngine.calculateItemValue(item);
-                        final itemDiff = liveVal - lendingVal;
-                        final hasItemDrift = itemLiveRate != null && itemLiveRate > 0 && liveVal != lendingVal && lendingVal > 0;
-                        final itemDiffPct = lendingVal > 0 ? (itemDiff / lendingVal) * 100.0 : 0.0;
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppTheme.subCardDark,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppTheme.borderDark),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      item.name,
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                                    child: Text(
-                                      item.itemCategory,
-                                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.gold),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (item.description != null && item.description!.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  item.description!,
-                                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontStyle: FontStyle.italic),
-                                ),
-                              ],
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 8,
-                                children: [
-                                  Text(
-                                    '${item.weight}g @ ${item.purity}% (${item.fineWeight.toStringAsFixed(2)}g fine)',
-                                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                                  ),
-                                  if (item.rate > 0)
-                                    Text(
-                                      '• Lent @ ₹${item.rate.toStringAsFixed(0)}/g',
-                                      style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-                                    ),
-                                  if (itemLiveRate != null && itemLiveRate > 0)
-                                    Text(
-                                      '• Live: ₹${itemLiveRate.toStringAsFixed(0)}/g',
-                                      style: const TextStyle(fontSize: 12, color: AppTheme.emerald, fontWeight: FontWeight.w600),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 4,
-                                children: [
-                                  if (lendingVal > 0)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                      decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                                      child: Text(
-                                        'Valuation at Lending: ${CurrencyFormatter.format(lendingVal)}',
-                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.gold),
-                                      ),
-                                    ),
-                                  if (hasItemDrift) ...[
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                      decoration: AppTheme.badgeDecoration(AppTheme.emerald),
-                                      child: Text(
-                                        'Live Market Val: ${CurrencyFormatter.format(liveVal)}',
-                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.emerald),
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: (itemDiff >= 0 ? AppTheme.emerald : AppTheme.rose).withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color: (itemDiff >= 0 ? AppTheme.emerald : AppTheme.rose).withValues(alpha: 0.3),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        '${itemDiff >= 0 ? "▲ +" : "▼ "}${CurrencyFormatter.format(itemDiff.abs())} (${itemDiff >= 0 ? "+" : ""}${itemDiffPct.toStringAsFixed(1)}%)',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: itemDiff >= 0 ? AppTheme.emerald : AppTheme.rose,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                  if (item.lendableAmount > 0)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                      decoration: AppTheme.badgeDecoration(AppTheme.accentCyan),
-                                      child: Text(
-                                        'Max Lendable (${item.lendPercentage.toStringAsFixed(0)}%): ${CurrencyFormatter.format(item.lendableAmount)}',
-                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.accentCyan),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
+                      ...record.items.map(
+                        (item) => CollateralItemTile(
+                          item: item,
+                          currentRates: _currentRates,
+                          showLiveDrift: true,
+                        ),
+                      ),
                     ],
                   );
                 },
@@ -826,7 +719,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                     decoration: AppTheme.badgeDecoration(AppTheme.gold),
                                     child: Text(
-                                      p.paymentId,
+                                      AppIdFormatter.formatPaymentId(p.paymentId),
                                       style: const TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.bold,
@@ -882,7 +775,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.accentCyan,
-                      foregroundColor: Colors.black,
+                      foregroundColor: Colors.white,
                     ),
                     onPressed: _settleRecord,
                     icon: const Icon(Icons.check_circle_outline),
@@ -923,7 +816,7 @@ class _FinRow extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              color: isBold ? Colors.white : AppTheme.textSecondary,
+              color: isBold ? AppTheme.textPrimary : AppTheme.textSecondary,
             ),
           ),
           Text(
@@ -931,7 +824,7 @@ class _FinRow extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
-              color: highlightColor ?? Colors.white,
+              color: highlightColor ?? AppTheme.textPrimary,
             ),
           ),
         ],

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
+import '../../../core/ui/formatters/id_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/ui/widgets/date_input_field.dart';
+import '../../../core/utils/app_date_formatter.dart';
 import '../../../core/utils/uuid_generator.dart';
 import '../../../domain/domain.dart';
 
@@ -27,6 +29,7 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
   double _enteredAmount = 0.0;
   double _outstandingInterest = 0.0;
   double _outstandingPrincipal = 0.0;
+  double _monthsElapsed = 0.0;
   bool _isSaving = false;
 
   @override
@@ -38,11 +41,12 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
   void _computeCurrentFinancials() {
     final financials = CalculationEngine.calculateRecordFinancials(
       widget.record,
-      DateTime.now(),
+      _paymentDate,
     );
     setState(() {
       _outstandingInterest = financials.outstandingInterest;
       _outstandingPrincipal = financials.outstandingPrincipal;
+      _monthsElapsed = financials.months;
     });
   }
 
@@ -111,7 +115,7 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Record Payment • ${widget.record.transactionId}'),
+        title: Text('Record Payment • ${AppIdFormatter.formatTransactionId(widget.record.transactionId)}'),
       ),
       body: Center(
         child: ConstrainedBox(
@@ -138,7 +142,7 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: AppTheme.badgeDecoration(AppTheme.gold, borderRadius: 8),
                         child: Text(
-                          widget.record.transactionId,
+                          AppIdFormatter.formatTransactionId(widget.record.transactionId),
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.gold,
@@ -154,7 +158,7 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Outstanding Interest', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                          Text('Outstanding Interest (${AppDateFormatter.formatMonths(_monthsElapsed)})', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
                           Text(
                             CurrencyFormatter.format(_outstandingInterest),
                             style: const TextStyle(
@@ -255,7 +259,10 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
             label: 'Payment Date',
             initialDate: _paymentDate,
             onDateChanged: (d) {
-              if (d != null) setState(() => _paymentDate = d);
+              if (d != null) {
+                _paymentDate = d;
+                _computeCurrentFinancials();
+              }
             },
           ),
           const SizedBox(height: 16),

@@ -3,9 +3,11 @@ import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/currency_formatter.dart';
+import '../../../core/ui/formatters/id_formatter.dart';
 import '../../../core/ui/theme/app_theme.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
+import '../../../presentation/widgets/collateral_item_tile.dart';
 import 'edit_transaction_screen.dart';
 
 /// Screen displaying complete details for a single loan transaction,
@@ -103,7 +105,7 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
       await _loadDetails();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          AppTheme.successSnackBar('Loan ${_record.transactionId} marked as SETTLED!'),
+          AppTheme.successSnackBar('Loan ${AppIdFormatter.formatTransactionId(_record.transactionId)} marked as SETTLED!'),
         );
       }
     }
@@ -125,7 +127,7 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(r.transactionId.isEmpty ? 'Loan Details' : r.transactionId),
+        title: Text(r.transactionId.isEmpty ? 'Loan Details' : AppIdFormatter.formatTransactionId(r.transactionId)),
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_rounded),
@@ -240,7 +242,7 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                 decoration: AppTheme.badgeDecoration(AppTheme.gold),
                                 child: Text(
-                                  _customer!.displayId,
+                                  AppIdFormatter.formatCustomerId(_customer!.displayId),
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.gold),
                                 ),
                               ),
@@ -287,12 +289,13 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                         const SizedBox(height: 14),
                         _DetailRow(label: 'Monthly Interest Rate', value: '${r.interestRate.toStringAsFixed(1)}% / month'),
                         _DetailRow(label: 'Started Date', value: AppDateFormatter.formatDate(r.startDate)),
+                        _DetailRow(label: 'Duration / Tenure', value: AppDateFormatter.formatMonths(financials.months)),
                         if (r.endDate != null)
                           _DetailRow(label: 'Due / End Date', value: AppDateFormatter.formatDate(r.endDate!)),
                         if (r.settledDate != null)
                           _DetailRow(label: 'Settled Date', value: AppDateFormatter.formatDate(r.settledDate!)),
                         const Divider(height: 20, color: AppTheme.borderDark),
-                        _DetailRow(label: 'Total Accrued Interest', value: CurrencyFormatter.format(financials.totalInterest)),
+                        _DetailRow(label: 'Total Accrued Interest (${AppDateFormatter.formatMonths(financials.months)})', value: CurrencyFormatter.format(financials.totalInterest)),
                         _DetailRow(label: 'Total Amount Repaid', value: CurrencyFormatter.format(totalPaid)),
                         _DetailRow(label: 'Remaining Principal Due', value: CurrencyFormatter.format(financials.remainingPrincipal)),
                         _DetailRow(label: 'Remaining Interest Due', value: CurrencyFormatter.format(financials.outstandingInterest)),
@@ -340,53 +343,7 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                             ),
                           )
                         else
-                          ...r.items.map((item) {
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.all(12),
-                              decoration: AppTheme.subCardDecoration,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                              decoration: AppTheme.badgeDecoration(AppTheme.gold, borderRadius: 4),
-                                              child: Text(
-                                                item.itemCategory,
-                                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.gold),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                item.name,
-                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                          Text(
-                                            'Weight: ${item.weight}g  |  Purity: ${item.purity}%  |  Rate: ₹${item.rate}/g',
-                                            style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                    Text(
-                                      CurrencyFormatter.format(item.itemValue > 0 ? item.itemValue : calculateItemValue(item)),
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.gold),
-                                    ),
-                                ],
-                              ),
-                            );
-                          }),
+                          ...r.items.map((item) => CollateralItemTile(item: item)),
                       ],
                     ),
                   ),
@@ -436,7 +393,9 @@ class _LoanDetailsScreenState extends State<LoanDetailsScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        AppDateFormatter.formatDate(p.date),
+                                        p.paymentId.isNotEmpty
+                                            ? '${AppIdFormatter.formatPaymentId(p.paymentId)} • ${AppDateFormatter.formatDate(p.date)}'
+                                            : AppDateFormatter.formatDate(p.date),
                                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                       ),
                                       const SizedBox(height: 2),
@@ -531,7 +490,7 @@ class _DetailRow extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               fontWeight: isHighlight ? FontWeight.w600 : FontWeight.normal,
-              color: isHighlight ? Colors.white : AppTheme.textSecondary,
+              color: isHighlight ? AppTheme.textPrimary : AppTheme.textSecondary,
             ),
           ),
           Text(
@@ -539,7 +498,7 @@ class _DetailRow extends StatelessWidget {
             style: TextStyle(
               fontSize: isHighlight ? 15 : 13,
               fontWeight: FontWeight.bold,
-              color: valueColor ?? (isHighlight ? AppTheme.gold : Colors.white),
+              color: valueColor ?? (isHighlight ? AppTheme.gold : AppTheme.textPrimary),
             ),
           ),
         ],

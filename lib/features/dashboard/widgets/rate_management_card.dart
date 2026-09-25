@@ -308,7 +308,7 @@ class _RateManagementCardState extends State<RateManagementCard> {
                   onPressed: isBusy ? null : () => _handleUpdateRate(category),
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.gold,
-                    foregroundColor: Colors.black,
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
@@ -316,7 +316,7 @@ class _RateManagementCardState extends State<RateManagementCard> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
                       : const Text(
                           'Update',
@@ -387,7 +387,7 @@ class _RateManagementCardState extends State<RateManagementCard> {
                 onPressed: _isAdding ? null : _handleAddCategory,
                 style: FilledButton.styleFrom(
                   backgroundColor: AppTheme.accentCyan,
-                  foregroundColor: Colors.black,
+                  foregroundColor: Colors.white,
                   padding: EdgeInsets.zero,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
@@ -395,7 +395,7 @@ class _RateManagementCardState extends State<RateManagementCard> {
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.add, size: 22),
               ),

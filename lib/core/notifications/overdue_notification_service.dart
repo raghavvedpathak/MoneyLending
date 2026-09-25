@@ -11,6 +11,7 @@ import '../../domain/domain.dart';
 import '../calculations/calculation_engine.dart';
 import '../calculations/util/date_extensions.dart';
 import '../di/injection.dart';
+import '../ui/formatters/id_formatter.dart';
 
 export '../../app/background/daily_check.dart'
     show dailyOverdueCallback, runDailyChecks, scheduleNextTenAm;
@@ -312,11 +313,11 @@ class OverdueNotificationService {
 
           String reasonText = '';
           if (primary.reasons.contains(OverdueReason.noActivity)) {
-            reasonText = '${primary.record.transactionId} inactive for ${primary.daysSinceActivity} days';
+            reasonText = '${AppIdFormatter.formatTransactionId(primary.record.transactionId)} inactive for ${primary.daysSinceActivity} days';
           } else if (primary.reasons.contains(OverdueReason.collateralBreachedNow)) {
-            reasonText = '${primary.record.transactionId} collateral value dropped below balance';
+            reasonText = '${AppIdFormatter.formatTransactionId(primary.record.transactionId)} collateral value dropped below balance';
           } else if (primary.reasons.contains(OverdueReason.collateralProjected2Months)) {
-            reasonText = '${primary.record.transactionId} collateral projected breach in 2 months';
+            reasonText = '${AppIdFormatter.formatTransactionId(primary.record.transactionId)} collateral projected breach in 2 months';
           }
 
           const androidDetails = AndroidNotificationDetails(

@@ -4,7 +4,7 @@ import 'package:money_lending/core/di/injection.dart';
 import 'package:money_lending/data/datasources/database_helper.dart';
 import 'package:money_lending/domain/domain.dart';
 import 'package:money_lending/features/settings/settings.dart';
-import 'test_db_helper.dart';
+import '../test_db_helper.dart';
 
 void main() {
   late DatabaseHelper dbHelper;
