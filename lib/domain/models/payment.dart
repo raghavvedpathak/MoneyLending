@@ -65,4 +65,18 @@ class Payment {
     interestPaid: interestPaid,
     principalPaid: principalPaid,
   );
+
+  /// [FIX-CHECKPAYMENT-DRAFT-1] (v1.27) an unsaved payment for the dry run. [date] is the FULL datetime
+  /// that will be stored (chosen date + time-of-day captured once), so the dry-run order equals the
+  /// stored order. The id sorts after any real (hex UUID) id on an exact tie.
+  factory Payment.draft({required double amount, required DateTime date}) => Payment(
+        id: '~draft',
+        paymentId: '',
+        recordId: '',
+        amount: amount,
+        date: date,
+        notes: '',
+        interestPaid: 0.0,
+        principalPaid: 0.0,
+      );
 }

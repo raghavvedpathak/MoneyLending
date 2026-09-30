@@ -36,10 +36,12 @@ class RecordDetailScreen extends StatefulWidget {
 class _RecordDetailScreenState extends State<RecordDetailScreen> {
   final RecordRepository _recordRepository = sl<RecordRepository>();
   final CustomerRepository _customerRepository = sl<CustomerRepository>();
+  final LenderRepository _lenderRepository = sl<LenderRepository>();
   final ItemRateRepository _itemRateRepository = sl<ItemRateRepository>();
 
   LedgerRecord? _record;
   Customer? _customer;
+  Lender? _lender;
   LedgerRecord? _linkedRecord;
   List<LedgerRecord> _linkedTakenRecords = [];
   List<ItemRate> _currentRates = [];
@@ -68,11 +70,24 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
     try {
       final rec = await _recordRepository.getRecordById(widget.recordId);
       Customer? cust;
+      Lender? lend;
       LedgerRecord? linkedGiven;
       List<LedgerRecord> linkedTakens = [];
       if (rec != null) {
-        final customers = await _customerRepository.getAllCustomersOnce();
-        cust = customers.where((c) => c.id == rec.customerId).firstOrNull;
+        if (rec.isGiven) {
+          final customers = await _customerRepository.getAllCustomersOnce();
+          cust = customers.where((c) => c.id == rec.customerId).firstOrNull;
+          if (cust == null && (rec.customerId?.isNotEmpty ?? false)) {
+            try {
+              cust = await _customerRepository.getCustomerById(rec.customerId!).first;
+            } catch (_) {}
+          }
+        } else {
+          final lendId = rec.lenderId ?? rec.customerId ?? '';
+          if (lendId.isNotEmpty) {
+            lend = await _lenderRepository.getLenderById(lendId);
+          }
+        }
         if (rec.isTaken && rec.linkedRecordId != null && rec.linkedRecordId!.isNotEmpty) {
           linkedGiven = await _recordRepository.getRecordById(rec.linkedRecordId!);
         } else if (rec.isGiven) {
@@ -85,6 +100,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
         setState(() {
           _record = rec ?? _record;
           _customer = cust;
+          _lender = lend;
           _linkedRecord = linkedGiven;
           _linkedTakenRecords = linkedTakens;
           _isLoading = false;
@@ -236,7 +252,6 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
     }
 
     final record = _record!;
-    final customer = _customer;
     final isSettled = record.status == RecordStatus.SETTLED;
     final financials = CalculationEngine.calculateRecordFinancials(record, DateTime.now().dateOnly);
 
@@ -292,13 +307,30 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      '${AppIdFormatter.formatCustomerId(customer?.displayId ?? 'Customer')} • ${AppIdFormatter.formatTransactionId(record.transactionId)}',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.gold,
-                      ),
+                    Builder(
+                      builder: (context) {
+                        final partyId = record.isGiven
+                            ? AppIdFormatter.formatCustomerId(
+                                _customer?.displayId ??
+                                    (record.customerId?.isNotEmpty == true
+                                        ? record.customerId
+                                        : 'Borrower'),
+                              )
+                            : AppIdFormatter.formatLenderId(
+                                _lender?.displayId ??
+                                    ((record.lenderId ?? record.customerId)?.isNotEmpty == true
+                                        ? (record.lenderId ?? record.customerId)
+                                        : 'Lender'),
+                              );
+                        return Text(
+                          '$partyId • ${AppIdFormatter.formatTransactionId(record.transactionId)}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.gold,
+                          ),
+                        );
+                      },
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -318,15 +350,38 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  customer?.name ?? 'Customer #${record.customerId}',
+                  record.isGiven
+                      ? (_customer?.name ??
+                          (record.customerName?.isNotEmpty == true
+                              ? record.customerName!
+                              : 'Borrower #${record.customerId ?? ""}'))
+                      : (_lender?.name ??
+                          (record.customerName?.isNotEmpty == true
+                              ? record.customerName!
+                              : 'Lender #${record.lenderId ?? record.customerId ?? ""}')),
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
-                if (customer?.phone != null) ...[
+                if (record.isGiven && _customer?.phone != null && _customer!.phone!.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
-                    customer!.phone!,
+                    _customer!.phone!,
                     style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                   ),
+                ] else if (record.isTaken) ...[
+                  if (_lender?.phone != null && _lender!.phone!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _lender!.phone!,
+                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                    ),
+                  ],
+                  if (_lender?.institutionDetails != null && _lender!.institutionDetails!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _lender!.institutionDetails!,
+                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                    ),
+                  ],
                 ],
               ],
             ),
@@ -556,12 +611,43 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                   highlightColor: AppTheme.emerald,
                 ),
                 const Divider(height: 16),
-                _FinRow(
-                  label: isSettled ? 'Final Settlement Balance' : 'Outstanding Balance Due',
-                  value: CurrencyFormatter.format(financials.totalDue),
-                  highlightColor: isSettled ? AppTheme.textSecondary : AppTheme.rose,
-                  isBold: true,
-                ),
+                if (isSettled) ...[
+                  if (financials.totalDue > 0)
+                    _FinRow(
+                      label: 'Written off at settlement',
+                      value: CurrencyFormatter.format(financials.totalDue),
+                      highlightColor: AppTheme.rose,
+                      isBold: true,
+                    )
+                  else if (financials.overpaymentAmount > 0)
+                    _FinRow(
+                      label: 'Overpayment refunded',
+                      value: CurrencyFormatter.format(financials.overpaymentAmount),
+                      highlightColor: AppTheme.accentCyan,
+                      isBold: true,
+                    )
+                  else
+                    _FinRow(
+                      label: 'Final Settlement Balance',
+                      value: CurrencyFormatter.format(0.0),
+                      highlightColor: AppTheme.emerald,
+                      isBold: true,
+                    ),
+                ] else ...[
+                  _FinRow(
+                    label: 'Outstanding Balance Due',
+                    value: CurrencyFormatter.format(financials.totalDue),
+                    highlightColor: financials.totalDue > 0 ? AppTheme.rose : AppTheme.emerald,
+                    isBold: true,
+                  ),
+                  if (financials.overpaymentAmount > 0)
+                    _FinRow(
+                      label: 'Overpayment Amount',
+                      value: CurrencyFormatter.format(financials.overpaymentAmount),
+                      highlightColor: AppTheme.accentCyan,
+                      isBold: true,
+                    ),
+                ],
               ],
             ),
           ),

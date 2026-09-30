@@ -196,6 +196,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('• Version: ${backup.version}'),
                     Text('• Customers: ${backup.customers.length}'),
+                    if (backup.lenders != null && backup.lenders!.isNotEmpty)
+                      Text('• Lenders: ${backup.lenders!.length}'),
                     Text('• Records: ${backup.records.length}'),
                   ],
                 ),
@@ -237,8 +239,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     } catch (e) {
       if (mounted) {
+        final displayMsg = e is BackupValidationException ? e.message : 'Error restoring backup: $e';
         ScaffoldMessenger.of(context).showSnackBar(
-          AppTheme.errorSnackBar('Error restoring backup: $e'),
+          AppTheme.errorSnackBar(displayMsg),
         );
       }
     } finally {

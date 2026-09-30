@@ -1,28 +1,32 @@
 import 'package:flutter/material.dart';
 import '../../core/calculations/calculation_engine.dart';
+import '../../core/di/injection.dart';
 import '../../core/ui/formatters/currency_formatter.dart';
 import '../../core/ui/theme/app_theme.dart';
 import '../../core/utils/uuid_generator.dart';
 import '../../domain/models/item_rate.dart';
 import '../../domain/models/ledger_item.dart';
+import '../../domain/repositories/item_rate_repository.dart';
 
 /// A modern, responsive dialog for Adding or Editing Collateral Items.
 ///
 /// Features:
 /// - Supports both Add and Edit modes with live pre-filling.
-/// - Metallic category selector with auto-fill from [currentRates].
+/// - Metallic category selector with auto-fill from [currentRates] or historical rate via [recordDate].
 /// - Quick purity presets (22K 91.6%, 18K 75%, 24K 99.9%, Silver 925, 100%).
 /// - Live instant reactive valuation card (Fine weight, Market valuation, Max Lendable).
 /// - Styled specifically for seamless use on both Android and Windows.
 class AddEditCollateralDialog extends StatefulWidget {
   final LedgerItem? initialItem;
   final List<ItemRate> currentRates;
+  final DateTime? recordDate;
   final ValueChanged<LedgerItem> onSave;
 
   const AddEditCollateralDialog({
     super.key,
     this.initialItem,
     this.currentRates = const [],
+    this.recordDate,
     required this.onSave,
   });
 
@@ -30,6 +34,7 @@ class AddEditCollateralDialog extends StatefulWidget {
     BuildContext context, {
     LedgerItem? initialItem,
     List<ItemRate> currentRates = const [],
+    DateTime? recordDate,
     required ValueChanged<LedgerItem> onSave,
   }) async {
     final isWide = MediaQuery.of(context).size.width >= 700;
@@ -48,6 +53,7 @@ class AddEditCollateralDialog extends StatefulWidget {
             child: AddEditCollateralDialog(
               initialItem: initialItem,
               currentRates: currentRates,
+              recordDate: recordDate,
               onSave: onSave,
             ),
           ),
@@ -69,6 +75,7 @@ class AddEditCollateralDialog extends StatefulWidget {
             child: AddEditCollateralDialog(
               initialItem: initialItem,
               currentRates: currentRates,
+              recordDate: recordDate,
               onSave: onSave,
             ),
           ),
@@ -128,9 +135,19 @@ class _AddEditCollateralDialogState extends State<AddEditCollateralDialog> {
     super.dispose();
   }
 
-  void _autoFillRateForCategory(String category) {
+  void _autoFillRateForCategory(String category) async {
+    if (widget.recordDate != null && sl.isRegistered<ItemRateRepository>()) {
+      try {
+        final asOfRate = await sl<ItemRateRepository>().getRateAsOf(category, widget.recordDate!);
+        if (asOfRate != null && asOfRate.ratePerUnit > 0.0 && mounted) {
+          _rateCtrl.text = asOfRate.ratePerUnit.toStringAsFixed(0);
+          return;
+        }
+      } catch (_) {}
+    }
+
     final live = CalculationEngine.getUsableRate(widget.currentRates, category);
-    if (live != null && live > 0) {
+    if (live != null && live > 0.0 && mounted) {
       _rateCtrl.text = live.toStringAsFixed(0);
     }
   }

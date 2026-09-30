@@ -41,6 +41,14 @@ class RecordDao {
     }
   }
 
+  /// Watch records by lender ID (§4.4)
+  Stream<List<RecordEntityData>> watchByLender(String lenderId) async* {
+    yield await getByLender(lenderId);
+    await for (final _ in _recordChanges.stream) {
+      yield await getByLender(lenderId);
+    }
+  }
+
   /// Required by §5.3 Collection Alert Section — do NOT inline this query in
   /// DashboardNotifier. [FIX-ENUM-CASE-1] typed equalsValue(), never string literals.
   /// [FIX-PERF-EAGERLOAD-2] this raw records-only stream is an INPUT to the
@@ -70,6 +78,17 @@ class RecordDao {
       'records',
       where: 'customerId = ?',
       whereArgs: [customerId],
+      orderBy: 'startDate DESC',
+    );
+    return maps.map((m) => RecordEntity.fromMap(m)).toList();
+  }
+
+  /// Queries records for a given lender, sorted chronologically descending (§4.4)
+  Future<List<RecordEntity>> getByLender(String lenderId) async {
+    final maps = await _db.query(
+      'records',
+      where: 'lenderId = ?',
+      whereArgs: [lenderId],
       orderBy: 'startDate DESC',
     );
     return maps.map((m) => RecordEntity.fromMap(m)).toList();
@@ -228,6 +247,7 @@ class RecordDao {
   /// data, and surface a clear error.
   Future<void> restoreBackupTransactionally({
     required List<Map<String, dynamic>> customers,
+    List<Map<String, dynamic>> lenders = const [],
     required List<Map<String, dynamic>> records,
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
@@ -243,6 +263,9 @@ class RecordDao {
         await txn.delete('ledger_items');
         await txn.delete('records');
         await txn.delete('customers');
+        try {
+          await txn.delete('lenders');
+        } catch (_) {}
         await txn.delete('retired_ids');
 
         if (settings != null) {
@@ -257,6 +280,11 @@ class RecordDao {
 
         for (final c in customers) {
           await txn.insert('customers', c, conflictAlgorithm: ConflictAlgorithm.abort);
+        }
+        for (final l in lenders) {
+          try {
+            await txn.insert('lenders', l, conflictAlgorithm: ConflictAlgorithm.abort);
+          } catch (_) {}
         }
         for (final r in records) {
           await txn.insert('records', r, conflictAlgorithm: ConflictAlgorithm.abort);
@@ -276,6 +304,9 @@ class RecordDao {
       await executor.delete('ledger_items');
       await executor.delete('records');
       await executor.delete('customers');
+      try {
+        await executor.delete('lenders');
+      } catch (_) {}
       await executor.delete('retired_ids');
 
       if (settings != null) {
@@ -290,6 +321,11 @@ class RecordDao {
 
       for (final c in customers) {
         await executor.insert('customers', c, conflictAlgorithm: ConflictAlgorithm.abort);
+      }
+      for (final l in lenders) {
+        try {
+          await executor.insert('lenders', l, conflictAlgorithm: ConflictAlgorithm.abort);
+        } catch (_) {}
       }
       for (final r in records) {
         await executor.insert('records', r, conflictAlgorithm: ConflictAlgorithm.abort);

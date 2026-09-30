@@ -102,6 +102,18 @@ class PdfShareService {
     );
   }
 
+  /// Direct share method using share_plus's Share.shareXFiles([XFile(...)], subject: ...) (§6.3).
+  Future<ShareResult> shareWithShareXFiles({
+    required File file,
+    required String subject,
+  }) async {
+    // ignore: deprecated_member_use
+    return Share.shareXFiles(
+      [XFile(file.path)],
+      subject: subject,
+    );
+  }
+
   /// Convenience share method for customer statement matching §6.3:
   /// File: `${dir.path}/pdfs/${customer.displayId}_statement.pdf`
   /// Subject: `Statement — ${customer.name}`
@@ -116,6 +128,23 @@ class PdfShareService {
       fileName: fileName,
       subject: subject,
       chooserTitle: 'Share Customer Statement',
+    );
+  }
+
+  /// Convenience share method for lender statement matching §6.2b & §6.3:
+  /// File: `${dir.path}/pdfs/${lender.displayId}_statement.pdf`
+  /// Subject: `Statement — ${lender.name}`
+  Future<bool> shareLenderStatement({
+    required Lender lender,
+    required Uint8List bytes,
+  }) async {
+    final fileName = '${lender.displayId}_statement.pdf';
+    final subject = 'Statement — ${lender.name}';
+    return sharePdf(
+      bytes: bytes,
+      fileName: fileName,
+      subject: subject,
+      chooserTitle: 'Share Lender Statement',
     );
   }
 

@@ -3,8 +3,10 @@
 
 export 'errors/customer_has_records_exception.dart';
 export 'errors/item_pledged_exception.dart';
+export 'errors/lender_has_records_exception.dart';
 export 'errors/record_linked_taken_exception.dart';
 export 'errors/stale_record_exception.dart';
+export 'models/borrower_report.dart';
 export 'models/business_info.dart';
 export 'models/collection_alert.dart';
 export 'models/customer.dart';
@@ -16,6 +18,8 @@ export 'models/financials.dart';
 export 'models/item_rate.dart';
 export 'models/ledger_item.dart';
 export 'models/ledger_record.dart';
+export 'models/lender.dart';
+export 'models/lender_report.dart';
 export 'models/monthly_earning.dart';
 export 'models/overdue_record.dart';
 export 'models/payment.dart';
@@ -26,6 +30,7 @@ export 'models/settings.dart';
 export 'models/profit_state.dart';
 export 'repositories/customer_repository.dart';
 export 'repositories/item_rate_repository.dart';
+export 'repositories/lender_repository.dart';
 export 'repositories/record_repository.dart';
 export 'repositories/settings_repository.dart';
 export '../core/domain/util/date_format.dart';

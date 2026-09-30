@@ -33,8 +33,8 @@ class RecordRepositoryImpl implements RecordRepository {
     final db = await _dbHelper.database;
     final maps = await db.query(
       'records',
-      where: 'status = ?',
-      whereArgs: [RecordStatus.ACTIVE.name],
+      where: 'LOWER(status) = ?',
+      whereArgs: ['active'],
       orderBy: 'startDate DESC',
     );
     final entities = maps.map((m) => RecordEntity.fromMap(m)).toList();
@@ -61,7 +61,8 @@ class RecordRepositoryImpl implements RecordRepository {
       id: entity.id,
       transactionId: entity.transactionId,
       type: RecordType.fromString(entity.type) ?? RecordType.GIVEN,
-      customerId: entity.customerId,
+      customerId: entity.customerId.isNotEmpty ? entity.customerId : null,
+      lenderId: entity.lenderId,
       customerName: entity.customerName,
       startDate: AppDateFormatter.parseIso(entity.startDate) ?? DateTime.now(),
       endDate: entity.endDate != null ? AppDateFormatter.parseIso(entity.endDate)?.dateOnly : null,
@@ -86,7 +87,8 @@ class RecordRepositoryImpl implements RecordRepository {
       id: entity.id,
       transactionId: entity.transactionId,
       type: RecordType.fromString(entity.type) ?? RecordType.GIVEN,
-      customerId: entity.customerId,
+      customerId: entity.customerId.isNotEmpty ? entity.customerId : null,
+      lenderId: entity.lenderId,
       customerName: entity.customerName,
       startDate: AppDateFormatter.parseIso(entity.startDate) ?? DateTime.now(),
       endDate: entity.endDate != null ? AppDateFormatter.parseIso(entity.endDate)?.dateOnly : null,
@@ -134,7 +136,8 @@ class RecordRepositoryImpl implements RecordRepository {
       id: domain.id,
       transactionId: domain.transactionId,
       type: domain.type.name,
-      customerId: domain.customerId,
+      customerId: domain.customerId ?? '',
+      lenderId: domain.lenderId,
       customerName: domain.customerName,
       startDate: AppDateFormatter.toIsoDateTime(domain.startDate),
       endDate: domain.endDate != null ? AppDateFormatter.toIsoDate(domain.endDate!) : null,
@@ -150,6 +153,14 @@ class RecordRepositoryImpl implements RecordRepository {
   @override
   Stream<List<LedgerRecord>> getRecordsByCustomer(String customerId) async* {
     final entities = await _dbHelper.getRecordsByCustomer(customerId);
+    final records = await Future.wait(entities.map(_fetchFullRecord));
+    yield records;
+  }
+
+  @override
+  Stream<List<LedgerRecord>> getRecordsByLender(String lenderId) async* {
+    final recordDao = await _dbHelper.recordDao;
+    final entities = await recordDao.getByLender(lenderId);
     final records = await Future.wait(entities.map(_fetchFullRecord));
     yield records;
   }
@@ -173,8 +184,8 @@ class RecordRepositoryImpl implements RecordRepository {
     final db = await _dbHelper.database;
     final maps = await db.query(
       'records',
-      where: 'status = ?',
-      whereArgs: [RecordStatus.ACTIVE.name],
+      where: 'LOWER(status) = ?',
+      whereArgs: ['active'],
       orderBy: 'startDate DESC',
     );
     final entities = maps.map((m) => RecordEntity.fromMap(m)).toList();
@@ -415,6 +426,7 @@ class RecordRepositoryImpl implements RecordRepository {
   @override
   Future<void> restoreBackupTransactionally({
     required List<Map<String, dynamic>> customers,
+    List<Map<String, dynamic>> lenders = const [],
     required List<Map<String, dynamic>> records,
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
@@ -424,6 +436,7 @@ class RecordRepositoryImpl implements RecordRepository {
   }) async {
     await _dbHelper.restoreBackupTransactionally(
       customers: customers,
+      lenders: lenders,
       records: records,
       ledgerItems: ledgerItems,
       payments: payments,

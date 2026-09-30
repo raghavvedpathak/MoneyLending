@@ -3,10 +3,12 @@ import 'package:get_it/get_it.dart';
 import '../../data/datasources/database_helper.dart';
 import '../../data/repositories/customer_repository_impl.dart';
 import '../../data/repositories/item_rate_repository_impl.dart';
+import '../../data/repositories/lender_repository_impl.dart';
 import '../../data/repositories/record_repository_impl.dart';
 import '../../data/repositories/settings_repository_impl.dart';
 import '../../domain/repositories/customer_repository.dart';
 import '../../domain/repositories/item_rate_repository.dart';
+import '../../domain/repositories/lender_repository.dart';
 import '../../domain/repositories/record_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
 import '../data/backup/backup.dart';
@@ -48,6 +50,12 @@ Future<void> initServiceLocator() async {
   if (!sl.isRegistered<ItemRateRepository>()) {
     sl.registerLazySingleton<ItemRateRepository>(
       () => ItemRateRepositoryImpl(sl<DatabaseHelper>()),
+    );
+  }
+
+  if (!sl.isRegistered<LenderRepository>()) {
+    sl.registerLazySingleton<LenderRepository>(
+      () => LenderRepositoryImpl(sl<DatabaseHelper>()),
     );
   }
 

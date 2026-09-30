@@ -8,6 +8,7 @@ import '../../di/injection.dart';
 import '../../domain/repository/item_rate_repository.dart';
 import '../../domain/repository/settings_repository.dart';
 import 'backup_serializer.dart';
+import 'models/backup_lender.dart';
 import 'models/backup_retired_id.dart';
 import 'models/backup_wrapper.dart';
 
@@ -97,7 +98,33 @@ class BackupService {
       }
     }
 
-    // 2. Records, transactionIds, and child payments/items
+    // 1b. Lender IDs and displayIds (§4.4, [FIX-LENDER-BACKUP-1])
+    final lenderIds = <String>{};
+    final lenderDisplayIds = <String>{};
+    final validLenderTypes = {'individual', 'institution'};
+
+    for (final l in wrapper.lenders ?? const <BackupLender>[]) {
+      if (!validLenderTypes.contains(l.lenderType.toLowerCase())) {
+        throw BackupValidationException(
+          'Lender "${l.displayId.isNotEmpty ? l.displayId : l.id}" has invalid lenderType: "${l.lenderType}". Must be "individual" or "institution".',
+          l.displayId.isNotEmpty ? l.displayId : l.id,
+        );
+      }
+      if (l.id.isNotEmpty && !lenderIds.add(l.id)) {
+        throw BackupValidationException(
+          'Backup file contains duplicate lender ID: "${l.id}". Import aborted.',
+          l.id,
+        );
+      }
+      if (l.displayId.isNotEmpty && !lenderDisplayIds.add(l.displayId)) {
+        throw BackupValidationException(
+          'Backup file contains duplicate lender displayId: "${l.displayId}". Import aborted.',
+          l.displayId,
+        );
+      }
+    }
+
+    // 2. Records, transactionIds, type invariants, and child payments/items
     final recordIds = <String>{};
     final transactionIds = <String>{};
     final itemIds = <String>{};
@@ -105,6 +132,27 @@ class BackupService {
     final paymentDisplayIds = <String>{};
 
     for (final r in wrapper.records) {
+      final isGiven = r.type.toUpperCase() == 'GIVEN';
+      final hasCustomer = r.customerId != null && r.customerId!.trim().isNotEmpty;
+      final hasLender = r.lenderId != null && r.lenderId!.trim().isNotEmpty;
+
+      if (isGiven) {
+        if (!hasCustomer || hasLender) {
+          throw BackupValidationException(
+            'Record "${r.transactionId.isNotEmpty ? r.transactionId : r.id}" of type GIVEN must have customerId and cannot have lenderId.',
+            r.transactionId.isNotEmpty ? r.transactionId : r.id,
+          );
+        }
+      } else {
+        // TAKEN
+        if (!hasLender || hasCustomer) {
+          throw BackupValidationException(
+            'Record "${r.transactionId.isNotEmpty ? r.transactionId : r.id}" of type TAKEN must have lenderId and cannot have customerId.',
+            r.transactionId.isNotEmpty ? r.transactionId : r.id,
+          );
+        }
+      }
+
       if (r.id.isNotEmpty && !recordIds.add(r.id)) {
         throw BackupValidationException(
           'Backup file contains duplicate record ID: "${r.id}". Import aborted.',
@@ -147,6 +195,7 @@ class BackupService {
   /// Generates the raw JSON string representation of all active and historical data in the database.
   Future<String> generateBackupJson() async {
     final customers = await _customerRepository.getAllCustomersOnce();
+    final lenders = (await _dbHelper.getAllLenders()).map((e) => e.toDomain()).toList();
     final records = await _recordRepository.getAllRecordsOnce();
     final retiredIdMaps = await _dbHelper.getAllRetiredIds();
 
@@ -165,6 +214,7 @@ class BackupService {
 
     final wrapper = BackupSerializer.fromDomain(
       customers: customers,
+      lenders: lenders,
       records: records,
       retiredIds: retiredIds,
       settings: settings,
@@ -245,7 +295,7 @@ class BackupService {
   /// rolls back the full import, leaving existing data untouched,
   /// and surfaces a clear error message identifying the offending ID.
   Future<void> restoreBackup(BackupWrapper wrapper) async {
-    // 1. Pre-validate duplicate IDs
+    // 1. Pre-validate duplicate IDs and integrity
     validateBackup(wrapper);
 
     // 2. Prepare SQLite rows
@@ -258,16 +308,32 @@ class BackupService {
       'createdAt': c.createdAt,
     }).toList();
 
+    final lenderMaps = (wrapper.lenders ?? const <BackupLender>[])
+        .map<Map<String, dynamic>>((l) => {
+          'id': l.id,
+          'displayId': l.displayId,
+          'lenderType': l.lenderType,
+          'name': l.name,
+          'phone': l.phone.isNotEmpty ? l.phone : null,
+          'institutionDetails': l.institutionDetails,
+          'notes': l.notes,
+          'createdAt': l.createdAt,
+          'updatedAt': l.updatedAt,
+        })
+        .toList();
+
     final recordMaps = <Map<String, dynamic>>[];
     final itemMaps = <Map<String, dynamic>>[];
     final paymentMaps = <Map<String, dynamic>>[];
 
     for (final r in wrapper.records) {
+      final isGiven = r.type.toUpperCase() == 'GIVEN';
       recordMaps.add({
         'id': r.id,
         'transactionId': r.transactionId,
         'type': r.type.toUpperCase(),
-        'customerId': r.customerId,
+        'customerId': isGiven ? r.customerId : null,
+        'lenderId': isGiven ? null : r.lenderId,
         'customerName': r.customerName,
         'startDate': r.startDate,
         'endDate': r.endDate != null && r.endDate!.trim().isNotEmpty ? r.endDate : null,
@@ -336,6 +402,7 @@ class BackupService {
     // 3. Atomically restore into database (replace-all inside single transaction)
     await _dbHelper.restoreBackupTransactionally(
       customers: customerMaps,
+      lenders: lenderMaps,
       records: recordMaps,
       ledgerItems: itemMaps,
       payments: paymentMaps,

@@ -45,6 +45,10 @@ class MockRecordRepository implements RecordRepository {
       _recordsCtrl.stream;
 
   @override
+  Stream<List<LedgerRecord>> getRecordsByLender(String lenderId) =>
+      _recordsCtrl.stream;
+
+  @override
   Future<LedgerRecord> insertRecord(LedgerRecord record) async {
     records.add(record);
     emit();

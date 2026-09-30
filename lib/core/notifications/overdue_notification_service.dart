@@ -11,6 +11,7 @@ import '../../domain/domain.dart';
 import '../calculations/calculation_engine.dart';
 import '../calculations/util/date_extensions.dart';
 import '../di/injection.dart';
+import '../navigation/app_routes.dart';
 import '../ui/formatters/id_formatter.dart';
 
 export '../../app/background/daily_check.dart'
@@ -199,6 +200,7 @@ class OverdueNotificationService {
       overdueAlarmCallback,
       exact: canExact,
       wakeup: true,
+      allowWhileIdle: true,
       rescheduleOnReboot: true,
     );
   }
@@ -279,7 +281,8 @@ class OverdueNotificationService {
       // Count distinct customer IDs among candidates to notify
       final distinctCustomers = <String, String>{};
       for (final item in candidatesToNotify) {
-        distinctCustomers[item.record.customerId] = item.record.customerName ?? 'Customer';
+        final cId = item.record.customerId ?? item.record.lenderId ?? 'party';
+        distinctCustomers[cId] = item.record.customerName ?? 'Party';
       }
 
       final isGrouped = shouldGroupNotifications(distinctCustomers.length);
@@ -299,7 +302,7 @@ class OverdueNotificationService {
           title: '${distinctCustomers.length} Loans Overdue',
           body: 'Tap to review all overdue customer accounts.',
           notificationDetails: notificationDetails,
-          payload: 'overdue',
+          payload: const OverdueReportRoute().path,
         );
       } else {
         // Individual notification per customer
@@ -308,16 +311,19 @@ class OverdueNotificationService {
           final customerName = entry.value;
 
           // Customer's highest-risk or most inactive record
-          final customerRecords = candidatesToNotify.where((o) => o.record.customerId == customerId).toList();
-          final primary = customerRecords.first;
+          final customerRecords = candidatesToNotify
+              .where((o) => (o.record.customerId ?? o.record.lenderId) == customerId)
+              .toList();
+          final primary = customerRecords.isNotEmpty ? customerRecords.first : candidatesToNotify.first;
 
           String reasonText = '';
+          final txnDisplay = AppIdFormatter.formatTransactionId(primary.record.transactionId);
           if (primary.reasons.contains(OverdueReason.noActivity)) {
-            reasonText = '${AppIdFormatter.formatTransactionId(primary.record.transactionId)} inactive for ${primary.daysSinceActivity} days';
+            reasonText = '$txnDisplay inactive for ${primary.daysSinceActivity} days';
           } else if (primary.reasons.contains(OverdueReason.collateralBreachedNow)) {
-            reasonText = '${AppIdFormatter.formatTransactionId(primary.record.transactionId)} collateral value dropped below balance';
+            reasonText = '$txnDisplay collateral value dropped below balance';
           } else if (primary.reasons.contains(OverdueReason.collateralProjected2Months)) {
-            reasonText = '${AppIdFormatter.formatTransactionId(primary.record.transactionId)} collateral projected breach in 2 months';
+            reasonText = '$txnDisplay collateral projected breach in 2 months';
           }
 
           const androidDetails = AndroidNotificationDetails(
@@ -333,7 +339,7 @@ class OverdueNotificationService {
             title: 'Overdue Loan: $customerName',
             body: reasonText,
             notificationDetails: notificationDetails,
-            payload: 'overdue',
+            payload: const OverdueReportRoute().path,
           );
         }
       }
@@ -415,7 +421,7 @@ class OverdueNotificationService {
       // Group by customer ID so each affected customer receives a distinct notification
       final customerRisks = <String, List<RecordRisk>>{};
       for (final r in candidatesToNotify) {
-        customerRisks.putIfAbsent(r.record.customerId, () => []).add(r);
+        customerRisks.putIfAbsent(r.record.customerId ?? '', () => []).add(r);
       }
 
       for (final entry in customerRisks.entries) {
@@ -433,8 +439,9 @@ class OverdueNotificationService {
         const notificationDetails = NotificationDetails(android: androidDetails);
 
         final String body;
+        final txnDisplay = AppIdFormatter.formatTransactionId(primary.record.transactionId);
         if (custRisks.length == 1) {
-          body = '${primary.record.transactionId} projected balance will exceed collateral in 2 months';
+          body = '$txnDisplay projected balance will exceed collateral in 2 months';
         } else {
           body = '${custRisks.length} loans projected to exceed collateral in 2 months';
         }
@@ -444,7 +451,7 @@ class OverdueNotificationService {
           title: 'Collection Warning: $customerName',
           body: body,
           notificationDetails: notificationDetails,
-          payload: 'collection_alerts',
+          payload: const DashboardAlertsRoute().path,
         );
       }
 

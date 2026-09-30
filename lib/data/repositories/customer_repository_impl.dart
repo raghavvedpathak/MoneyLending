@@ -55,6 +55,25 @@ class CustomerRepositoryImpl implements CustomerRepository {
   }
 
   @override
+  Stream<List<Customer>> watchAllCustomers() => getAllCustomers();
+
+  @override
+  Future<Customer> addCustomer({
+    required String name,
+    String? phone,
+    String? address,
+    required DateTime createdAt,
+  }) =>
+      insertCustomer(Customer(
+        id: '',
+        displayId: '',
+        name: name,
+        phone: phone,
+        address: address,
+        createdAt: createdAt,
+      ));
+
+  @override
   Future<List<Customer>> getAllCustomersOnce() async {
     final entities = await _dbHelper.getAllCustomers();
     return entities.map(_toDomain).toList();

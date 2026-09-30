@@ -28,6 +28,7 @@ class CustomerStatementReport {
   final int activeRecordCount;
   final int settledRecordCount;
   final PdfFonts? fonts;
+  final BorrowerReport? borrowerReport;
 
   const CustomerStatementReport({
     required this.customer,
@@ -41,7 +42,11 @@ class CustomerStatementReport {
     required this.activeRecordCount,
     required this.settledRecordCount,
     this.fonts,
+    this.borrowerReport,
   });
+
+  /// Total principal out reading [BorrowerReport] (§5.1, §6.2)
+  double get totalPrincipalOut => borrowerReport?.totalPrincipalOut ?? totalPrincipal;
 
   /// Builds the [pw.Document] widget tree for this customer statement (§6.1, §6.2).
   pw.Document buildDocument([PdfFonts? overrideFonts]) {
@@ -200,8 +205,15 @@ class CustomerStatementReport {
             }
           }
 
-          // 5. Summary Footer Card (§6.2: total principal out, total interest accrued, total due)
+          // 5. Summary Footer Card (§6.2: total principal out, total interest accrued, total due reading BorrowerReport)
           content.add(pw.SizedBox(height: 8));
+          final effectiveBorrowerReport = borrowerReport ??
+              CalculationEngine.getBorrowerReports(
+                customers: [customer],
+                records: records,
+                today: targetDate,
+              ).firstOrNull;
+
           content.add(
             pw.Container(
               padding: const pw.EdgeInsets.all(12),
@@ -213,10 +225,10 @@ class CustomerStatementReport {
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
                 children: [
-                  _buildFooterSummaryCol('Total Active Loans', '$activeRecordCount'),
-                  _buildFooterSummaryCol('Total Principal Out', 'Rs. ${totalPrincipal.toStringAsFixed(2)}'),
-                  _buildFooterSummaryCol('Total Accrued Interest', 'Rs. ${totalInterestAccrued.toStringAsFixed(2)}'),
-                  _buildFooterSummaryCol('Total Amount Due', 'Rs. ${totalDue.toStringAsFixed(2)}', isBold: true),
+                  _buildFooterSummaryCol('Total Active Loans', '${effectiveBorrowerReport?.activeRecordCount ?? activeRecordCount}'),
+                  _buildFooterSummaryCol('Total Principal Out', 'Rs. ${(effectiveBorrowerReport?.totalPrincipalOut ?? totalPrincipal).toStringAsFixed(2)}'),
+                  _buildFooterSummaryCol('Total Accrued Interest', 'Rs. ${(effectiveBorrowerReport?.totalInterestAccrued ?? totalInterestAccrued).toStringAsFixed(2)}'),
+                  _buildFooterSummaryCol('Total Amount Due', 'Rs. ${(effectiveBorrowerReport?.totalDue ?? totalDue).toStringAsFixed(2)}', isBold: true),
                 ],
               ),
             ),
@@ -310,13 +322,13 @@ class CustomerStatementReport {
                     ),
                     pw.SizedBox(width: 8),
                     pw.Text(
-                      '(${record.type.name} - ${record.status.name})',
+                      '(${record.status.name})',
                       style: const pw.TextStyle(color: PdfColors.grey300, fontSize: 8),
                     ),
                   ],
                 ),
                 pw.Text(
-                  '${record.isGiven ? "Given" : "Taken"}: ${AppDateFormatter.formatDate(record.startDate)} • ${AppDateFormatter.formatMonths(fin.months)}'
+                  'Start Date: ${AppDateFormatter.formatDate(record.startDate)} • ${AppDateFormatter.formatMonths(fin.months)}'
                   '${record.endDate != null ? " | Due: ${AppDateFormatter.formatDate(record.endDate!)}" : ""}'
                   '${record.settledDate != null ? " | Settled: ${AppDateFormatter.formatDate(record.settledDate!)}" : ""}',
                   style: pw.TextStyle(
@@ -450,8 +462,15 @@ CustomerStatementReport generateCustomerStatement(
   final now = today ?? DateTime.now();
   final targetDate = DateTime(now.year, now.month, now.day);
 
-  // Filter records belonging to this customer
-  final customerRecords = records.where((r) => r.customerId == customer.id).toList();
+  // Filter records belonging to this customer (Borrower has only GIVEN records)
+  final customerRecords = records.where((r) => r.customerId == customer.id && r.isGiven).toList();
+
+  final borrowerReports = CalculationEngine.getBorrowerReports(
+    customers: [customer],
+    records: customerRecords,
+    today: targetDate,
+  );
+  final borrowerReport = borrowerReports.isNotEmpty ? borrowerReports.first : null;
 
   double totalPrincipal = 0.0;
   double totalInterestAccrued = 0.0;
@@ -483,6 +502,7 @@ CustomerStatementReport generateCustomerStatement(
     activeRecordCount: activeCount,
     settledRecordCount: settledCount,
     fonts: resolvedFonts,
+    borrowerReport: borrowerReport,
   );
 }
 

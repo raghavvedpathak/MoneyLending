@@ -13,12 +13,15 @@ import 'backup_payment.dart';
 /// - [FIX-BACKUPRECORD-ENDDATE-1]: endDate MUST be declared as nullable String? (never non-nullable).
 /// - [FIX-ENUM-CASE-1]: type and status are uppercase strings ('GIVEN'/'TAKEN', 'ACTIVE'/'SETTLED').
 /// - [FIX-TIMESTAMP-BACKUP-1]: startDate is an ISO datetime string ("2026-04-23T14:30:00").
+/// - [FIX-LENDER-BACKUP-1]: customerId is nullable, lenderId added (String?, default null).
+///   Export writes customerId for GIVEN and lenderId for TAKEN.
 class BackupRecord {
   final String id;
   final String transactionId;
   final String type;
   final String status;
-  final String customerId;
+  final String? customerId;
+  final String? lenderId;
   final String? customerName;
   final String startDate;
   final String? endDate;
@@ -36,7 +39,8 @@ class BackupRecord {
     this.transactionId = '',
     required this.type,
     required this.status,
-    required this.customerId,
+    this.customerId,
+    this.lenderId,
     this.customerName,
     required this.startDate,
     this.endDate,
@@ -56,14 +60,22 @@ class BackupRecord {
     String? type,
     String? status,
     String? customerId,
+    bool clearCustomerId = false,
+    String? lenderId,
+    bool clearLenderId = false,
     String? customerName,
+    bool clearCustomerName = false,
     String? startDate,
     String? endDate,
+    bool clearEndDate = false,
     double? principalAmount,
     double? interestRate,
     String? settledDate,
+    bool clearSettledDate = false,
     double? calculatedInterest,
+    bool clearCalculatedInterest = false,
     String? linkedRecordId,
+    bool clearLinkedRecordId = false,
     String? itemCategory,
     List<BackupItem>? items,
     List<BackupPayment>? payments,
@@ -73,15 +85,16 @@ class BackupRecord {
       transactionId: transactionId ?? this.transactionId,
       type: type ?? this.type,
       status: status ?? this.status,
-      customerId: customerId ?? this.customerId,
-      customerName: customerName ?? this.customerName,
+      customerId: clearCustomerId ? null : (customerId ?? this.customerId),
+      lenderId: clearLenderId ? null : (lenderId ?? this.lenderId),
+      customerName: clearCustomerName ? null : (customerName ?? this.customerName),
       startDate: startDate ?? this.startDate,
-      endDate: endDate ?? this.endDate,
+      endDate: clearEndDate ? null : (endDate ?? this.endDate),
       principalAmount: principalAmount ?? this.principalAmount,
       interestRate: interestRate ?? this.interestRate,
-      settledDate: settledDate ?? this.settledDate,
-      calculatedInterest: calculatedInterest ?? this.calculatedInterest,
-      linkedRecordId: linkedRecordId ?? this.linkedRecordId,
+      settledDate: clearSettledDate ? null : (settledDate ?? this.settledDate),
+      calculatedInterest: clearCalculatedInterest ? null : (calculatedInterest ?? this.calculatedInterest),
+      linkedRecordId: clearLinkedRecordId ? null : (linkedRecordId ?? this.linkedRecordId),
       itemCategory: itemCategory ?? this.itemCategory,
       items: items ?? this.items,
       payments: payments ?? this.payments,
@@ -97,7 +110,8 @@ class BackupRecord {
       transactionId: json['transactionId']?.toString() ?? '',
       type: (json['type']?.toString() ?? 'GIVEN').toUpperCase(),
       status: (json['status']?.toString() ?? 'ACTIVE').toUpperCase(),
-      customerId: json['customerId']?.toString() ?? '',
+      customerId: json['customerId']?.toString(),
+      lenderId: json['lenderId']?.toString(),
       customerName: json['customerName']?.toString(),
       startDate: json['startDate']?.toString() ?? '',
       endDate: json['endDate']?.toString(),
@@ -119,12 +133,14 @@ class BackupRecord {
   }
 
   Map<String, dynamic> toJson() {
+    final isGiven = type.toUpperCase() == 'GIVEN';
     return {
       'id': id,
       'transactionId': transactionId,
       'type': type.toUpperCase(),
       'status': status.toUpperCase(),
-      'customerId': customerId,
+      'customerId': isGiven ? customerId : null,
+      'lenderId': isGiven ? null : lenderId,
       if (customerName != null) 'customerName': customerName,
       'startDate': startDate,
       'endDate': endDate ?? '',

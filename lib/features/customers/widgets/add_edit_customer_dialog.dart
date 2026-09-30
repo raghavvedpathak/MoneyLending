@@ -95,7 +95,7 @@ class _AddEditCustomerDialogState extends State<AddEditCustomerDialog> {
       if (mounted) {
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          AppTheme.errorSnackBar('Failed to save customer: $e'),
+          AppTheme.errorSnackBar('Failed to save borrower: $e'),
         );
       }
     }
@@ -104,7 +104,7 @@ class _AddEditCustomerDialogState extends State<AddEditCustomerDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(_isEditing ? 'Edit Customer' : 'Add New Customer'),
+      title: const Text('Add/Edit Borrower'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
@@ -120,7 +120,7 @@ class _AddEditCustomerDialogState extends State<AddEditCustomerDialog> {
                 ),
                 validator: (val) {
                   if (val == null || val.trim().isEmpty) {
-                    return 'Please enter a customer name';
+                    return 'Please enter a borrower name';
                   }
                   return null;
                 },
@@ -160,7 +160,7 @@ class _AddEditCustomerDialogState extends State<AddEditCustomerDialog> {
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : Text(_isEditing ? 'Update Customer' : 'Save Customer'),
+              : Text(_isEditing ? 'Update Borrower' : 'Save Borrower'),
         ),
       ],
     );

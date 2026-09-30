@@ -70,11 +70,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Customer'),
+        title: const Text('Delete Borrower'),
         content: Text(
           'Are you sure you want to delete ${customer.name} (${AppIdFormatter.formatCustomerId(customer.displayId)})?\n\n'
-          'The customer ID will be permanently retired (FIX-ID-REUSE-1) and never reissued.\n\n'
-          'Customers with active or settled records cannot be deleted.',
+          'The borrower ID will be permanently retired (FIX-ID-REUSE-1) and never reissued.\n\n'
+          'Borrowers with active or settled records cannot be deleted.',
         ),
         actions: [
           TextButton(
@@ -87,7 +87,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete Customer'),
+            child: const Text('Delete Borrower'),
           ),
         ],
       ),
@@ -98,7 +98,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         await _notifier.deleteCustomer();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            AppTheme.successSnackBar('Customer ${AppIdFormatter.formatCustomerId(customer.displayId)} deleted'),
+            AppTheme.successSnackBar('Borrower ${AppIdFormatter.formatCustomerId(customer.displayId)} deleted'),
           );
           Navigator.of(context).pop(true);
         }
@@ -107,11 +107,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              title: const Text('Cannot Delete Customer'),
+              title: const Text('Cannot Delete Borrower'),
               content: Text(
-                'Cannot delete customer ${AppIdFormatter.formatCustomerId(customer.displayId)} because ${e.recordCount} record(s) '
-                'are still associated with this customer.\n\n'
-                'Please settle or delete all transactions before deleting the customer.',
+                'Cannot delete borrower ${AppIdFormatter.formatCustomerId(customer.displayId)} because ${e.recordCount} record(s) '
+                'are still associated with this borrower.\n\n'
+                'Please settle or delete all transactions before deleting the borrower.',
               ),
               actions: [
                 TextButton(
@@ -125,7 +125,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            AppTheme.errorSnackBar('Failed to delete customer: $e'),
+            AppTheme.errorSnackBar('Failed to delete borrower: $e'),
           );
         }
       }
@@ -152,7 +152,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
         if (state.isLoading && state.customer == null) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Customer Details')),
+            appBar: AppBar(title: const Text('Borrower Details')),
             body: const Center(child: CircularProgressIndicator()),
           );
         }
@@ -160,8 +160,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         final customer = state.customer;
         if (customer == null) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Customer Not Found')),
-            body: const Center(child: Text('This customer could not be found.')),
+            appBar: AppBar(title: const Text('Borrower Not Found')),
+            body: const Center(child: Text('This borrower could not be found.')),
           );
         }
 
@@ -171,7 +171,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             actions: [
               IconButton(
                 icon: const Icon(Icons.edit),
-                tooltip: 'Edit Customer',
+                tooltip: 'Edit Borrower',
                 onPressed: () => _editCustomer(customer),
               ),
               PopupMenuButton<String>(
@@ -188,7 +188,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                       children: [
                         Icon(Icons.delete_outline, color: AppTheme.rose, size: 20),
                         SizedBox(width: 8),
-                        Text('Delete customer', style: TextStyle(color: AppTheme.rose)),
+                        Text('Delete borrower', style: TextStyle(color: AppTheme.rose)),
                       ],
                     ),
                   ),
@@ -307,44 +307,51 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Per-Customer Ledger History Header
+              // Per-Borrower Ledger History Header (GIVEN-only, §10.2)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Ledger History (${state.records.length})',
+                    'Ledger History (${state.records.where((r) => r.record.isGiven).length})',
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
 
-              if (state.records.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32),
-                  child: Center(
-                    child: Text(
-                      'No ledger records found for this customer.',
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ),
-                )
-              else
-                ...state.records.map((item) {
-                  return _RecordLedgerCard(
-                    item: item,
-                    currentRates: _currentRates,
-                    onTap: () async {
-                      await AppNavigator.navigate(
-                        context,
-                        RecordDetailRoute(item.record.id, record: item.record),
+              Builder(
+                builder: (context) {
+                  final givenRecords = state.records.where((r) => r.record.isGiven).toList();
+                  if (givenRecords.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Center(
+                        child: Text(
+                          'No ledger records found for this borrower.',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      ),
+                    );
+                  }
+                  return Column(
+                    children: givenRecords.map((item) {
+                      return _RecordLedgerCard(
+                        item: item,
+                        currentRates: _currentRates,
+                        onTap: () async {
+                          await AppNavigator.navigate(
+                            context,
+                            RecordDetailRoute(item.record.id, record: item.record),
+                          );
+                          if (mounted) {
+                            await _notifier.refresh();
+                          }
+                        },
                       );
-                      if (mounted) {
-                        await _notifier.refresh();
-                      }
-                    },
+                    }).toList(),
                   );
-                }),
+                },
+              ),
               const SizedBox(height: 64),
             ],
           ),
@@ -632,7 +639,7 @@ class _RecordLedgerCard extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                'Customer: ${item.linkedCustomerName ?? "Customer"} (${AppIdFormatter.formatCustomerId(item.linkedCustomerDisplayId ?? item.linkedRecord!.customerId)})',
+                                'Customer: ${item.linkedCustomerName ?? "Customer"} (${AppIdFormatter.formatCustomerId(item.linkedCustomerDisplayId ?? item.linkedRecord?.customerId ?? "")})',
                                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                                 overflow: TextOverflow.ellipsis,
                               ),

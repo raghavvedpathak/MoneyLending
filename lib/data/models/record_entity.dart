@@ -20,6 +20,7 @@ class RecordEntity {
   final String transactionId;
   final String type; // 'GIVEN' | 'TAKEN'
   final String customerId;
+  final String? lenderId;
   final String? customerName;
   final String startDate; // ISO Datetime YYYY-MM-DDTHH:MM:SS
   final String? endDate; // null for open-ended
@@ -36,6 +37,7 @@ class RecordEntity {
     required this.transactionId,
     required this.type,
     required this.customerId,
+    this.lenderId,
     this.customerName,
     required this.startDate,
     this.endDate,
@@ -53,6 +55,7 @@ class RecordEntity {
       'transactionId': transactionId,
       'type': type,
       'customerId': customerId,
+      if (lenderId != null) 'lenderId': lenderId,
       'customerName': customerName,
       'startDate': startDate,
       'endDate': (endDate != null && endDate!.isNotEmpty) ? endDate : null,
@@ -72,6 +75,7 @@ class RecordEntity {
       transactionId: map['transactionId'] as String,
       type: map['type'] as String,
       customerId: map['customerId'] as String,
+      lenderId: map['lenderId'] as String?,
       customerName: map['customerName'] as String?,
       startDate: map['startDate'] as String,
       endDate: (rawEndDate != null && rawEndDate.isNotEmpty) ? rawEndDate : null,
@@ -81,6 +85,40 @@ class RecordEntity {
       settledDate: map['settledDate'] as String?,
       calculatedInterest: (map['calculatedInterest'] as num?)?.toDouble(),
       linkedRecordId: map['linkedRecordId'] as String?,
+    );
+  }
+
+  RecordEntity copyWith({
+    String? id,
+    String? transactionId,
+    String? type,
+    String? customerId,
+    String? lenderId,
+    String? customerName,
+    String? startDate,
+    String? endDate,
+    double? principalAmount,
+    double? interestRate,
+    String? status,
+    String? settledDate,
+    double? calculatedInterest,
+    String? linkedRecordId,
+  }) {
+    return RecordEntity(
+      id: id ?? this.id,
+      transactionId: transactionId ?? this.transactionId,
+      type: type ?? this.type,
+      customerId: customerId ?? this.customerId,
+      lenderId: lenderId ?? this.lenderId,
+      customerName: customerName ?? this.customerName,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      principalAmount: principalAmount ?? this.principalAmount,
+      interestRate: interestRate ?? this.interestRate,
+      status: status ?? this.status,
+      settledDate: settledDate ?? this.settledDate,
+      calculatedInterest: calculatedInterest ?? this.calculatedInterest,
+      linkedRecordId: linkedRecordId ?? this.linkedRecordId,
     );
   }
 

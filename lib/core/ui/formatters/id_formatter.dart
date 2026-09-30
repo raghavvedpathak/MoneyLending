@@ -46,6 +46,45 @@ class AppIdFormatter {
     return id;
   }
 
+  static final RegExp _legacyLendNoSlash = RegExp(r'^LEND(\d{2})-(\d{2})-(\d+)$');
+  static final RegExp _legacyLendDoubleHyphen = RegExp(r'^LEND-(\d{2})-(\d{2})-(\d+)$');
+  static final RegExp _standardLend = RegExp(r'^LEND-(\d{2})/(\d{2})-(\d+)$');
+
+  /// Formats lender displayId to LEND-26/27-01 format
+  static String formatLenderId(String? displayId) {
+    if (displayId == null || displayId.trim().isEmpty) return '';
+    final id = displayId.trim();
+
+    // Already in standard format LEND-26/27-01
+    final stdMatch = _standardLend.firstMatch(id);
+    if (stdMatch != null) {
+      final y1 = stdMatch.group(1)!;
+      final y2 = stdMatch.group(2)!;
+      final seq = stdMatch.group(3)!.padLeft(2, '0');
+      return 'LEND-$y1/$y2-$seq';
+    }
+
+    // Legacy without leading hyphen: LEND26-27-01 -> LEND-26/27-01
+    final match1 = _legacyLendNoSlash.firstMatch(id);
+    if (match1 != null) {
+      final y1 = match1.group(1)!;
+      final y2 = match1.group(2)!;
+      final seq = match1.group(3)!.padLeft(2, '0');
+      return 'LEND-$y1/$y2-$seq';
+    }
+
+    // Legacy double hyphen: LEND-26-27-01 -> LEND-26/27-01
+    final match2 = _legacyLendDoubleHyphen.firstMatch(id);
+    if (match2 != null) {
+      final y1 = match2.group(1)!;
+      final y2 = match2.group(2)!;
+      final seq = match2.group(3)!.padLeft(2, '0');
+      return 'LEND-$y1/$y2-$seq';
+    }
+
+    return id;
+  }
+
   /// Formats transactionId to TRAN-monthyearsequence format (e.g. TRAN-092601)
   static String formatTransactionId(String? transactionId) {
     if (transactionId == null || transactionId.trim().isEmpty) return '';

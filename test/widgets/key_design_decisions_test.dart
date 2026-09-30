@@ -207,8 +207,8 @@ void main() {
     });
 
     test('Clean Architecture §2.1: Domain layer is pure Dart and Presentation has zero direct DB imports', () {
-      final forbiddenInDomain = RegExp(r"import\s+['" + '"' + r"](package:flutter/|dart:io)");
-      final forbiddenInPresentation = RegExp(r"import\s+['" + '"' + r"].*(database_helper\.dart|package:sqflite|package:drift)");
+      final forbiddenInDomain = RegExp(r'''import\s+['"](package:flutter/|dart:io)''');
+      final forbiddenInPresentation = RegExp(r'''import\s+['"].*(database_helper\.dart|package:sqflite|package:drift)''');
 
       final pureDartDirs = ['lib/domain', 'lib/core/calculations'];
       for (final dirPath in pureDartDirs) {

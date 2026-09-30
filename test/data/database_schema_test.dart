@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/core/data/schema/drift_tables.dart' as schema;
 import 'package:money_lending/data/data.dart';
-import 'package:money_lending/domain/domain.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -346,6 +345,9 @@ void main() {
     test('Drift table instances expose correct table names matching §4.1', () {
       final customers = schema.Customers();
       expect(customers.tableName, 'customers');
+
+      final lenders = schema.Lenders();
+      expect(lenders.tableName, 'lenders');
 
       final records = schema.Records();
       expect(records.tableName, 'records');

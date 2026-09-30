@@ -26,10 +26,12 @@ import '../widgets/stale_rate_banner.dart';
 /// - FloatingActionButton opening AddEditRecordBottomSheet with live rate auto-fill.
 class DashboardScreen extends StatefulWidget {
   final bool? showRecordList;
+  final bool focusAlerts;
 
   const DashboardScreen({
     super.key,
-    this.showRecordList,
+    this.showRecordList = true,
+    this.focusAlerts = false,
   });
 
   @override
@@ -42,6 +44,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final SettingsRepository _settingsRepository = sl<SettingsRepository>();
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
+  final GlobalKey _alertsSectionKey = GlobalKey();
 
   RecordType _currentTab = RecordType.GIVEN;
   Settings? _settings;
@@ -63,6 +66,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _searchQuery = _searchController.text.trim().toLowerCase();
       });
     });
+
+    if (widget.focusAlerts) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToAlertsSection();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant DashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.focusAlerts && !oldWidget.focusAlerts) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToAlertsSection();
+      });
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -83,6 +102,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
         0.0,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _scrollToAlertsSection() {
+    final targetContext = _alertsSectionKey.currentContext;
+    if (targetContext != null) {
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+    } else if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        150.0,
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeInOut,
       );
@@ -227,7 +263,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(height: 12),
 
                     // 3. Collection Alert Section (Risk Summary Header + Unified Cards)
-                    _buildCollectionAlertSection(),
+                    KeyedSubtree(
+                      key: _alertsSectionKey,
+                      child: _buildCollectionAlertSection(),
+                    ),
                     const SizedBox(height: 16),
 
                     // 4. Executive Net Position Summary Card
@@ -281,7 +320,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     const SizedBox(height: 20),
 
-                    if (widget.showRecordList == true) ...[
+                    if (widget.showRecordList != false) ...[
                       // 7. Record List Header
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -391,7 +430,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         : records.where((r) {
             final nameMatch = (r.customerName ?? '').toLowerCase().contains(query);
             final txnMatch = r.transactionId.toLowerCase().contains(query);
-            final idMatch = r.customerId.toLowerCase().contains(query);
+            final idMatch = (r.customerId ?? '').toLowerCase().contains(query);
             return nameMatch || txnMatch || idMatch;
           }).toList();
     // [FIX-TIMESTAMP-RECORDLIST-1] (revised v1.15) Rows are ordered by startDate descending
@@ -771,7 +810,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Text(
-                '${AppIdFormatter.formatCustomerId(risk.record.customerId)} • ${AppIdFormatter.formatTransactionId(risk.record.transactionId)}',
+                '${AppIdFormatter.formatCustomerId(risk.record.customerId ?? '')} • ${AppIdFormatter.formatTransactionId(risk.record.transactionId)}',
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppTheme.textSecondary,

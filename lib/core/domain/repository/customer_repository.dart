@@ -12,4 +12,23 @@ abstract class CustomerRepository {
   Future<void> updateCustomer(Customer customer);
   Future<void> deleteCustomer(String id);
   Future<void> refresh();
+
+  /// Alias mirroring [LenderRepository.watchAllLenders] (§4.3 [FIX-LENDER-CODEPATH-1]).
+  Stream<List<Customer>> watchAllCustomers() => getAllCustomers();
+
+  /// Convenience mirroring [LenderRepository.addLender] (§4.3 [FIX-LENDER-CODEPATH-1]).
+  Future<Customer> addCustomer({
+    required String name,
+    String? phone,
+    String? address,
+    required DateTime createdAt,
+  }) =>
+      insertCustomer(Customer(
+        id: '',
+        displayId: '',
+        name: name,
+        phone: phone,
+        address: address,
+        createdAt: createdAt,
+      ));
 }

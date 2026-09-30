@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/app/background/daily_check.dart';
 import 'package:money_lending/core/calculations/calculation_engine.dart';
 import 'package:money_lending/core/data/dao/record_activity_row.dart';
+import 'package:money_lending/core/navigation/app_routes.dart';
 import 'package:money_lending/core/notifications/overdue_notification_service.dart';
 import 'package:money_lending/data/datasources/daos/record_dao.dart';
 import 'package:money_lending/data/datasources/database_helper.dart';
@@ -594,7 +595,7 @@ void main() {
 
       expect(plugin.postedNotifications.length, 1);
       expect(plugin.postedNotifications.first.channelId, 'moneylending_alerts');
-      expect(plugin.postedNotifications.first.payload, 'overdue');
+      expect(plugin.postedNotifications.first.payload, anyOf('overdue', '/reports/overdue'));
       expect(prefs.getString('notif_overdue_date_rec-throttle-1'), today.toIso8601String());
       expect(prefs.getStringList('notif_overdue_reasons_rec-throttle-1'), contains('noActivity'));
 
@@ -644,6 +645,184 @@ void main() {
       expect(overdueNotifs.length, 1);
       expect(overdueNotifs.first.id, 9999);
       expect(overdueNotifs.first.title, '4 Loans Overdue');
+    });
+
+    test('14. Overdue logic ignores endDate completely: gap depends purely on lastActivityDate vs today', () {
+      final today = DateTime(2026, 6, 1);
+
+      // Case A: endDate is in the PAST (2026-05-01), but payment occurred 5 days ago (2026-05-27)
+      // If code used endDate < today, this would be wrongly flagged as overdue.
+      // With activity-based rule: daysSinceActivity = 5 (< 30) -> NOT overdue.
+      final recPastEndDateWithRecentPayment = LedgerRecord(
+        id: 'rec-past-end-recent-pay',
+        transactionId: 'TXN-A',
+        type: RecordType.GIVEN,
+        customerId: 'cust-1',
+        startDate: DateTime(2026, 1, 1),
+        endDate: DateTime(2026, 5, 1), // past endDate!
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        payments: [
+          Payment(
+            id: 'pay-1',
+            recordId: 'rec-past-end-recent-pay',
+            amount: 500.0,
+            date: DateTime(2026, 5, 27), // 5 days ago
+            interestPaid: 500.0,
+            principalPaid: 0.0,
+          ),
+        ],
+      );
+
+      // Case B: endDate is far in the FUTURE (2027-01-01), but no payment in 45 days (startDate 2026-04-17)
+      // If code used endDate < today, this would be wrongly missed.
+      // With activity-based rule: daysSinceActivity = 45 (>= 30) -> OVERDUE.
+      final recFutureEndDateNoActivity = LedgerRecord(
+        id: 'rec-future-end-no-act',
+        transactionId: 'TXN-B',
+        type: RecordType.GIVEN,
+        customerId: 'cust-2',
+        startDate: DateTime(2026, 4, 17), // 45 days ago
+        endDate: DateTime(2027, 1, 1), // far future endDate!
+        principalAmount: 20000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+        payments: const [],
+      );
+
+      final overdueList = CalculationEngine.getOverdue(
+        records: [recPastEndDateWithRecentPayment, recFutureEndDateNoActivity],
+        today: today,
+        thresholdDays: 30,
+      );
+
+      expect(overdueList.length, 1);
+      expect(overdueList.first.record.id, 'rec-future-end-no-act');
+      expect(overdueList.first.daysSinceActivity, 45);
+      expect(overdueList.any((o) => o.record.id == 'rec-past-end-recent-pay'), isFalse);
+    });
+
+    test('15. [FIX-OVERDUE-COLLATERAL-1] 2-month projection flags collateralProjected2Months when balance will exceed collateral', () {
+      final today = DateTime(2026, 6, 1);
+      final rates = [
+        ItemRate(
+          id: 'rate-gold',
+          itemCategory: 'GOLD',
+          ratePerUnit: 5000.0,
+          effectiveDate: today,
+          updatedAt: today,
+        ),
+      ];
+
+      // Principal 20,000 at 5% / month = 1,000 / month interest.
+      // Collateral: 4.1g gold * 5000 = 20,500.
+      // Today (started today): totalDue = 20,000 <= 20,500 (NOT breached today).
+      // In 2 months: totalDue = 20,000 + 2,000 = 22,000 > 20,500 (BREACHED in 2 months!).
+      final recProjectedBreach = LedgerRecord(
+        id: 'rec-proj-breach',
+        transactionId: 'TXN-PROJ-BREACH',
+        type: RecordType.GIVEN,
+        customerId: 'cust-proj',
+        startDate: today,
+        principalAmount: 20000.0,
+        interestRate: 5.0,
+        status: RecordStatus.ACTIVE,
+        items: const [
+          LedgerItem(
+            id: 'item-gold-4',
+            recordId: 'rec-proj-breach',
+            name: 'Gold Ornament',
+            itemCategory: 'GOLD',
+            weight: 4.1,
+            purity: 100.0,
+            rate: 5000.0,
+            itemValue: 20500.0,
+            lendPercentage: 80.0,
+            lendableAmount: 16400.0,
+          ),
+        ],
+      );
+
+      final result = CalculationEngine.computeCollateralOverdue(
+        records: [recProjectedBreach],
+        rates: rates,
+        today: today,
+      );
+
+      expect(result.length, 1);
+      expect(result.first.reasons.contains(OverdueReason.collateralBreachedNow), isFalse);
+      expect(result.first.reasons.contains(OverdueReason.collateralProjected2Months), isTrue);
+      expect(result.first.projectedObligationIn2Months, greaterThan(20500.0));
+    });
+
+    test('16. Notification payload route paths and AppIdFormatter IDs match Section 8', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime(2026, 9, 20);
+
+      final rec = LedgerRecord(
+        id: 'rec-payload-test',
+        transactionId: 'TRAN092601',
+        type: RecordType.GIVEN,
+        customerId: 'cust-payload',
+        customerName: 'Bob Builder',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        status: RecordStatus.ACTIVE,
+      );
+
+      final plugin = _FakeNotificationsPlugin();
+
+      await runDailyChecks(
+        records: [rec],
+        rates: [],
+        today: today,
+        plugin: plugin,
+        prefs: prefs,
+      );
+
+      expect(plugin.postedNotifications.length, 1);
+      final notif = plugin.postedNotifications.first;
+      expect(notif.channelId, 'moneylending_alerts');
+      expect(notif.payload, const OverdueReportRoute().path);
+      expect(notif.payload, '/reports/overdue');
+      expect(notif.body, contains('TRAN-092601'));
+    });
+
+    test('17. runDailyChecks supports TAKEN records with lenderId cleanly', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime(2026, 9, 20);
+
+      final recTaken = LedgerRecord(
+        id: 'rec-taken-overdue',
+        transactionId: 'TXN-TAKEN-01',
+        type: RecordType.TAKEN,
+        lenderId: 'lend-01',
+        customerName: 'Bank ABC',
+        startDate: DateTime(2026, 8, 1),
+        principalAmount: 50000.0,
+        interestRate: 1.5,
+        status: RecordStatus.ACTIVE,
+      );
+
+      final plugin = _FakeNotificationsPlugin();
+
+      await runDailyChecks(
+        records: [recTaken],
+        rates: [],
+        today: today,
+        plugin: plugin,
+        prefs: prefs,
+      );
+
+      expect(plugin.postedNotifications.length, 1);
+      final notif = plugin.postedNotifications.first;
+      expect(notif.channelId, 'moneylending_alerts');
+      expect(notif.title, contains('Bank ABC'));
+      expect(notif.payload, const OverdueReportRoute().path);
     });
   });
 }

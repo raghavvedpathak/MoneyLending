@@ -4,6 +4,7 @@ import 'backup_migration.dart';
 import 'models/backup_customer.dart';
 import 'models/backup_item.dart';
 import 'models/backup_item_rate.dart';
+import 'models/backup_lender.dart';
 import 'models/backup_payment.dart';
 import 'models/backup_record.dart';
 import 'models/backup_retired_id.dart';
@@ -49,8 +50,8 @@ class BackupSerializer {
   ///
   /// Handles:
   /// 1. Legacy bare-array format (pre-versioned List).
-  /// 2. Version "1.1" -> runs [migrate1_1To1_2] and assigns display IDs.
-  /// 3. Version "1.2", "1.3", "1.4" -> decodes directly with defaulted keys and assigns missing display IDs.
+  /// 2. Version "1.1" -> runs [migrate1_1To1_2], splits lenders if null, and assigns display IDs.
+  /// 3. Version "1.2", "1.3", "1.4" -> decodes directly, splits lenders if null, and assigns missing display IDs.
   /// 4. Unknown version -> throws [UnsupportedBackupVersionException].
   static BackupWrapper decode(String jsonString) {
     final dynamic decoded = jsonDecode(jsonString);
@@ -66,13 +67,19 @@ class BackupSerializer {
 
       switch (version) {
         case '1.1':
-          final wrapper = BackupWrapper.fromJson(decoded);
-          final migrated = migrate1_1To1_2(wrapper);
-          return assignMissingDisplayIds(migrated);
+          var wrapper = BackupWrapper.fromJson(decoded);
+          wrapper = migrate1_1To1_2(wrapper);
+          if (wrapper.lenders == null) {
+            wrapper = splitCustomersIntoLenders(wrapper);
+          }
+          return assignMissingDisplayIds(wrapper);
         case '1.2':
         case '1.3':
         case '1.4':
-          final wrapper = BackupWrapper.fromJson(decoded);
+          var wrapper = BackupWrapper.fromJson(decoded);
+          if (wrapper.lenders == null) {
+            wrapper = splitCustomersIntoLenders(wrapper);
+          }
           return assignMissingDisplayIds(wrapper);
         default:
           throw const UnsupportedBackupVersionException();
@@ -93,9 +100,9 @@ class BackupSerializer {
       records.add(record);
 
       // Synthesize customer from record.customerId and record.customerName if not already tracked
-      if (record.customerId.isNotEmpty && !customersMap.containsKey(record.customerId)) {
-        customersMap[record.customerId] = BackupCustomer(
-          id: record.customerId,
+      if (record.customerId != null && record.customerId!.isNotEmpty && !customersMap.containsKey(record.customerId)) {
+        customersMap[record.customerId!] = BackupCustomer(
+          id: record.customerId!,
           name: record.customerName ?? 'Customer',
           phone: '',
           address: null,
@@ -105,18 +112,22 @@ class BackupSerializer {
       }
     }
 
-    final initialWrapper = BackupWrapper(
+    var initialWrapper = BackupWrapper(
       version: '1.1',
       customers: customersMap.values.toList(),
+      lenders: null,
       records: records,
       retiredIds: const [],
     );
 
-    // Apply pre-versioned -> v1.1 display ID assignment
-    final assigned = assignMissingDisplayIds(initialWrapper);
-
     // Apply 1.1 -> 1.2 datetime coercion (appending T00:00:00)
-    return migrate1_1To1_2(assigned);
+    initialWrapper = migrate1_1To1_2(initialWrapper);
+
+    // If lenders == null, run splitCustomersIntoLenders [FIX-LENDER-BACKUP-1]
+    initialWrapper = splitCustomersIntoLenders(initialWrapper);
+
+    // Apply display ID assignment across customers, lenders, transactions and payments
+    return assignMissingDisplayIds(initialWrapper);
   }
 
   // ===========================================================================
@@ -126,6 +137,7 @@ class BackupSerializer {
   /// Maps domain models into a [BackupWrapper] tagged with [backupVersion].
   static BackupWrapper fromDomain({
     required List<Customer> customers,
+    List<Lender> lenders = const [],
     required List<LedgerRecord> records,
     List<BackupRetiredId> retiredIds = const [],
     Settings? settings,
@@ -139,6 +151,20 @@ class BackupSerializer {
         phone: c.phone ?? '',
         address: c.address,
         createdAt: c.createdAt.toIso8601String(),
+      );
+    }).toList();
+
+    final backupLenders = lenders.map((l) {
+      return BackupLender(
+        id: l.id,
+        displayId: l.displayId,
+        lenderType: l.lenderType.name,
+        name: l.name,
+        phone: l.phone ?? '',
+        institutionDetails: l.institutionDetails,
+        notes: l.notes,
+        createdAt: l.createdAt.toIso8601String(),
+        updatedAt: l.updatedAt.toIso8601String(),
       );
     }).toList();
 
@@ -174,12 +200,14 @@ class BackupSerializer {
         );
       }).toList();
 
+      final isGiven = r.type == RecordType.given;
       return BackupRecord(
         id: r.id,
         transactionId: r.transactionId,
         type: r.type.name.toUpperCase(), // [FIX-ENUM-CASE-1]
         status: r.status.name.toUpperCase(), // [FIX-ENUM-CASE-1]
-        customerId: r.customerId,
+        customerId: isGiven ? r.customerId : null,
+        lenderId: isGiven ? null : r.lenderId,
         customerName: r.customerName,
         startDate: r.startDate.toIso8601String(),
         endDate: r.endDate != null ? r.endDate!.toIso8601String() : '', // Export maps null -> "" (§4.2)
@@ -206,6 +234,7 @@ class BackupSerializer {
     return BackupWrapper(
       version: backupVersion,
       customers: backupCustomers,
+      lenders: backupLenders,
       records: backupRecords,
       settings: backupSettings,
       itemRates: backupItemRates,
@@ -216,6 +245,7 @@ class BackupSerializer {
   /// Maps a normalized [BackupWrapper] into domain entities.
   static ({
     List<Customer> customers,
+    List<Lender> lenders,
     List<LedgerRecord> records,
     List<BackupRetiredId> retiredIds,
     Settings? settings,
@@ -229,6 +259,23 @@ class BackupSerializer {
         phone: c.phone.isNotEmpty ? c.phone : null,
         address: c.address,
         createdAt: DateTime.tryParse(c.createdAt) ?? DateTime.now(),
+      );
+    }).toList();
+
+    final lenders = (wrapper.lenders ?? const <BackupLender>[]).map((l) {
+      final type = l.lenderType == 'institution'
+          ? LenderType.institution
+          : LenderType.individual;
+      return Lender(
+        id: l.id,
+        displayId: l.displayId,
+        lenderType: type,
+        name: l.name,
+        phone: l.phone.isNotEmpty ? l.phone : null,
+        institutionDetails: l.institutionDetails,
+        notes: l.notes,
+        createdAt: DateTime.tryParse(l.createdAt) ?? DateTime.now(),
+        updatedAt: DateTime.tryParse(l.updatedAt) ?? DateTime.now(),
       );
     }).toList();
 
@@ -288,12 +335,15 @@ class BackupSerializer {
         throw FormatException('Unknown RecordStatus in backup: ${r.status}');
       }
 
+      final isGiven = recordType == RecordType.given;
+
       return LedgerRecord(
         id: r.id,
         transactionId: r.transactionId,
         type: recordType,
         status: recordStatus,
-        customerId: r.customerId,
+        customerId: isGiven && (r.customerId?.isNotEmpty ?? false) ? r.customerId : null,
+        lenderId: !isGiven && (r.lenderId?.isNotEmpty ?? false) ? r.lenderId : null,
         customerName: r.customerName,
         startDate: DateTime.tryParse(r.startDate) ?? DateTime.now(),
         endDate: parsedEndDate,
@@ -309,6 +359,7 @@ class BackupSerializer {
 
     return (
       customers: customers,
+      lenders: lenders,
       records: records,
       retiredIds: wrapper.retiredIds,
       settings: wrapper.settings?.toDomain(),

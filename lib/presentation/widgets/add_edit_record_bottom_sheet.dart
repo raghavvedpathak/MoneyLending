@@ -506,6 +506,7 @@ class _AddEditRecordBottomSheetState extends State<AddEditRecordBottomSheet> {
                           AddEditCollateralDialog.show(
                             context,
                             currentRates: _currentRates,
+                            recordDate: _startDate,
                             onSave: (newItem) {
                               setState(() => _items.add(newItem));
                             },

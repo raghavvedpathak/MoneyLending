@@ -222,7 +222,7 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      final subscription = container.listen(settingsStreamProvider, (_, __) {});
+      final subscription = container.listen(settingsStreamProvider, (_, _) {});
       addTearDown(subscription.close);
 
       final initial = await container.read(settingsStreamProvider.future);

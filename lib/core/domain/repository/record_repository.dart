@@ -15,6 +15,9 @@ abstract class RecordRepository {
   /// Reactive stream of records belonging to a customer
   Stream<List<LedgerRecord>> getRecordsByCustomer(String customerId);
 
+  /// Reactive stream of records belonging to a lender (TAKEN side)
+  Stream<List<LedgerRecord>> getRecordsByLender(String lenderId);
+
   /// Reactive stream of active GIVEN records
   Stream<List<LedgerRecord>> getActiveGivenRecords();
 

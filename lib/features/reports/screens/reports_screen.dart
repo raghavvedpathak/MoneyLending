@@ -42,19 +42,24 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   late final ReportsViewModel _viewModel;
   late final TabController _tabController;
   final CustomerRepository _customerRepository = sl<CustomerRepository>();
+  final LenderRepository _lenderRepository = sl<LenderRepository>();
   final RecordRepository _recordRepository = sl<RecordRepository>();
   final ItemRateRepository _itemRateRepository = sl<ItemRateRepository>();
   final PdfShareService _pdfShareService = sl<PdfShareService>();
 
   StreamSubscription<List<Customer>>? _customerSub;
+  StreamSubscription<List<Lender>>? _lenderSub;
   StreamSubscription<Customer?>? _selectedCustomerSub;
+  StreamSubscription<Lender?>? _selectedLenderSub;
   List<Customer> _customers = [];
+  List<Lender> _lenders = [];
 
   @override
   void initState() {
     super.initState();
-    _viewModel = ReportsViewModel(initialTab: widget.initialSubTab);
-    _tabController = TabController(length: 4, vsync: this, initialIndex: widget.initialSubTab);
+    final initialTab = widget.initialSubTab.clamp(0, 4);
+    _viewModel = ReportsViewModel(initialTab: initialTab);
+    _tabController = TabController(length: 5, vsync: this, initialIndex: initialTab);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         _viewModel.setActiveSubTab(_tabController.index);
@@ -69,7 +74,21 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       }
     });
 
-    _selectedCustomerSub = _viewModel.selectedCustomerStream.listen((_) {
+    _lenderSub = _lenderRepository.watchAllLenders().listen((lenders) {
+      if (mounted) {
+        setState(() {
+          _lenders = lenders;
+        });
+      }
+    });
+
+    _selectedCustomerSub = _viewModel.selectedBorrowerStream.listen((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+
+    _selectedLenderSub = _viewModel.selectedLenderStream.listen((_) {
       if (mounted) {
         setState(() {});
       }
@@ -79,7 +98,9 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   @override
   void dispose() {
     _customerSub?.cancel();
+    _lenderSub?.cancel();
     _selectedCustomerSub?.cancel();
+    _selectedLenderSub?.cancel();
     _tabController.dispose();
     _viewModel.dispose();
     super.dispose();
@@ -87,31 +108,8 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
 
   Future<void> _handleFabAction(ReportsFabAction action) async {
     try {
-      if (action == ReportsFabAction.allCustomersReport) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Generating All Customers Report PDF...')),
-        );
-        final report = await _viewModel.generateAllCustomersPdf();
-        final fonts = await loadPdfFonts();
-        final records = await _recordRepository.getAllActiveRecordsOnce();
-        final bytes = await compute(
-          buildAllCustomersBytes,
-          AllCustomersJob(
-            report.customerReports.map((c) => c.customer).toList(),
-            records,
-            report.businessInfo,
-            fonts,
-            report.generatedDate,
-          ),
-        );
-        await _pdfShareService.sharePdf(
-          bytes: bytes,
-          fileName: 'all_customers_report_${DateTime.now().millisecondsSinceEpoch}',
-          subject: 'All Customers Loan Ledger Report',
-          chooserTitle: 'Share All Customers Report',
-        );
-      } else if (action == ReportsFabAction.customerStatement) {
-        final customer = _viewModel.selectedCustomer;
+      if (action == ReportsFabAction.customerStatement) {
+        final customer = _viewModel.selectedBorrower;
         if (customer == null) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Generating statement for ${customer.name}...')),
@@ -128,6 +126,24 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           customer: customer,
           bytes: bytes,
         );
+      } else if (action == ReportsFabAction.lenderStatement) {
+        final lender = _viewModel.selectedLender;
+        if (lender == null) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Generating statement for ${lender.name}...')),
+        );
+        final records = await _recordRepository.getRecordsByLender(lender.id).first;
+        final settings = await sl<SettingsRepository>().getSettingsOnce();
+        final businessInfo = BusinessInfo.fromSettings(settings);
+        final fonts = await loadPdfFonts();
+        final bytes = await compute(
+          buildLenderStatementBytes,
+          LenderStatementJob(lender, records, businessInfo, fonts),
+        );
+        await _pdfShareService.shareLenderStatement(
+          lender: lender,
+          bytes: bytes,
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -141,10 +157,14 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: _viewModel.selectedCustomer == null,
+      canPop: _viewModel.selectedBorrower == null && _viewModel.selectedLender == null,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _viewModel.selectedCustomer != null) {
-          _viewModel.clearSelectedCustomer();
+        if (!didPop) {
+          if (_viewModel.selectedBorrower != null) {
+            _viewModel.clearSelectedBorrower();
+          } else if (_viewModel.selectedLender != null) {
+            _viewModel.clearSelectedLender();
+          }
         }
       },
       child: StreamBuilder<bool>(
@@ -162,7 +182,8 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                 indicatorWeight: 3,
                 tabs: const [
                   Tab(text: 'Overview'),
-                  Tab(text: 'Customer'),
+                  Tab(text: 'Borrowers'),
+                  Tab(text: 'Lenders'),
                   Tab(text: 'Monthly'),
                   Tab(text: 'Overdue'),
                 ],
@@ -173,11 +194,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                     heroTag: 'reports_fab',
                     onPressed: () => _handleFabAction(currentFabAction),
                     icon: const Icon(Icons.picture_as_pdf_rounded),
-                    label: Text(
-                      currentFabAction == ReportsFabAction.allCustomersReport
-                          ? 'Export All PDF'
-                          : 'Export Statement PDF',
-                    ),
+                    label: const Text('Export Statement PDF'),
                   )
                 : null,
             body: TabBarView(
@@ -186,8 +203,14 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                 _OverviewTab(recordRepository: _recordRepository),
                 _CustomerReportsTab(
                   customers: _customers,
-                  selectedCustomer: _viewModel.selectedCustomer,
-                  onCustomerChanged: (c) => _viewModel.selectCustomer(c),
+                  selectedCustomer: _viewModel.selectedBorrower,
+                  onCustomerChanged: (c) => _viewModel.selectBorrower(c),
+                  recordRepository: _recordRepository,
+                ),
+                _LenderReportsTab(
+                  lenders: _lenders,
+                  selectedLender: _viewModel.selectedLender,
+                  onLenderChanged: (l) => _viewModel.selectLender(l),
                   recordRepository: _recordRepository,
                 ),
                 _MonthlyEarningsTab(recordRepository: _recordRepository),
@@ -251,13 +274,42 @@ class _OverviewTabState extends State<_OverviewTab> with AutomaticKeepAliveClien
                   children: [
                     const Text('Executive Financial Summary', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 16),
+                    // Given Side (Borrowers)
+                    const Text('Given Side (Borrowers)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.accentCyan)),
+                    const SizedBox(height: 6),
                     _ReportRow(label: 'Total Principal Lent (Given)', value: CurrencyFormatter.format(dashboard.totalPrincipalGiven)),
-                    _ReportRow(label: 'Total Principal Borrowed (Taken)', value: CurrencyFormatter.format(dashboard.totalPrincipalTaken)),
                     _ReportRow(label: 'Total Interest Accrued', value: CurrencyFormatter.format(dashboard.totalInterestAccruedGiven)),
-                    const Divider(height: 24),
                     _ReportRow(
                       label: 'Grand Total Outstanding Due',
                       value: CurrencyFormatter.format(dashboard.totalDueGiven),
+                      isHighlight: true,
+                    ),
+                    const Divider(height: 20),
+                    // Taken Side (Lenders)
+                    const Text('Taken Side (Lenders)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
+                    const SizedBox(height: 6),
+                    _ReportRow(label: 'Total Principal Borrowed (Taken)', value: CurrencyFormatter.format(dashboard.totalPrincipalTaken)),
+                    _ReportRow(label: 'Total Interest Payable (Taken)', value: CurrencyFormatter.format(dashboard.totalInterestAccruedTaken)),
+                    _ReportRow(
+                      label: 'Total Due to Lenders',
+                      value: CurrencyFormatter.format(dashboard.totalDueTaken),
+                      isHighlight: true,
+                    ),
+                    const Divider(height: 20),
+                    // Net Position
+                    const Text('Net Position & Spread', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.gold)),
+                    const SizedBox(height: 6),
+                    _ReportRow(
+                      label: 'Net Principal Outstanding',
+                      value: CurrencyFormatter.format(dashboard.totalPrincipalGiven - dashboard.totalPrincipalTaken),
+                    ),
+                    _ReportRow(
+                      label: 'Net Interest Spread',
+                      value: CurrencyFormatter.format(dashboard.totalInterestAccruedGiven - dashboard.totalInterestAccruedTaken),
+                    ),
+                    _ReportRow(
+                      label: 'Net Outstanding Due Balance',
+                      value: CurrencyFormatter.format(dashboard.totalDueGiven - dashboard.totalDueTaken),
                       isHighlight: true,
                     ),
                   ],
@@ -380,11 +432,13 @@ class _CustomerSummaryListState extends State<_CustomerSummaryList> {
 
         final records = snapshot.data!;
         final today = DateTime.now().dateOnly;
-        final reports = CalculationEngine.getCustomerReport(
-          widget.customers,
-          records,
+        final allReports = CalculationEngine.getBorrowerReports(
+          customers: widget.customers,
+          records: records,
           today: today,
         );
+        // §10.3: A borrower or lender with zero active records on their side simply doesn't appear here
+        final reports = allReports.where((r) => r.activeRecordCount > 0).toList();
 
         if (reports.isEmpty) {
           return Center(
@@ -394,7 +448,7 @@ class _CustomerSummaryListState extends State<_CustomerSummaryList> {
                 Icon(Icons.people_outline, size: 64, color: AppTheme.textMuted.withValues(alpha: 0.5)),
                 const SizedBox(height: 16),
                 const Text(
-                  'No customers found',
+                  'No borrowers found',
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
                 ),
               ],
@@ -418,9 +472,9 @@ class _CustomerSummaryListState extends State<_CustomerSummaryList> {
   }
 }
 
-/// Interactive customer card rendering all 5 CustomerReport fields (§5.1, §6.1, [FIX-CUSTOMERREPORT-COUNT-1]).
+/// Interactive customer card rendering all 5 BorrowerReport fields (§5.1, §6.1, [FIX-CUSTOMERREPORT-COUNT-1]).
 class _CustomerReportCard extends StatelessWidget {
-  final CustomerReport report;
+  final BorrowerReport report;
   final VoidCallback onTap;
 
   const _CustomerReportCard({
@@ -495,7 +549,7 @@ class _CustomerReportCard extends StatelessWidget {
                   Expanded(
                     child: _FieldColumn(
                       label: 'Total Principal Out',
-                      value: CurrencyFormatter.format(report.totalPrincipal),
+                      value: CurrencyFormatter.format(report.totalPrincipalOut),
                     ),
                   ),
                   Expanded(
@@ -599,7 +653,7 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
 
   Future<List<LedgerRecord>> _loadRecords() async {
     final allRecords = await widget.recordRepository.getAllRecordsOnce();
-    return allRecords.where((r) => r.customerId == widget.customer.id).toList();
+    return allRecords.where((r) => r.customerId == widget.customer.id && r.isGiven).toList();
   }
 
   @override
@@ -615,7 +669,7 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
             IconButton(
               key: const Key('reports_drilldown_back_button'),
               icon: const Icon(Icons.arrow_back),
-              tooltip: 'Back to all customers',
+              tooltip: 'Back to all borrowers',
               onPressed: onBack,
             ),
             const SizedBox(width: 8),
@@ -653,17 +707,17 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
             }
 
             final records = snapshot.data!;
-            final customerReports = CalculationEngine.getCustomerReport(
-              [customer],
-              records,
+            final borrowerReports = CalculationEngine.getBorrowerReports(
+              customers: [customer],
+              records: records,
               today: DateTime.now().dateOnly,
             );
-            final report = customerReports.isNotEmpty
-                ? customerReports.first
-                : CustomerReport(
+            final report = borrowerReports.isNotEmpty
+                ? borrowerReports.first
+                : BorrowerReport(
                     customer: customer,
                     activeRecordCount: 0,
-                    totalPrincipal: 0.0,
+                    totalPrincipalOut: 0.0,
                     totalInterestAccrued: 0.0,
                     totalDue: 0.0,
                   );
@@ -677,15 +731,15 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        _ReportRow(label: 'Customer ID', value: AppIdFormatter.formatCustomerId(customer.displayId)),
-                        _ReportRow(label: 'Customer Name', value: customer.name),
+                        _ReportRow(label: 'Borrower ID', value: AppIdFormatter.formatCustomerId(customer.displayId)),
+                        _ReportRow(label: 'Borrower Name', value: customer.name),
                         if (customer.phone != null && customer.phone!.isNotEmpty)
                           _ReportRow(label: 'Phone', value: customer.phone!),
                         if (customer.address != null && customer.address!.isNotEmpty)
                           _ReportRow(label: 'Address', value: customer.address!),
                         const Divider(height: 16),
                         _ReportRow(label: 'Active Records', value: '${report.activeRecordCount}'),
-                        _ReportRow(label: 'Total Principal Out', value: CurrencyFormatter.format(report.totalPrincipal)),
+                        _ReportRow(label: 'Total Principal Out', value: CurrencyFormatter.format(report.totalPrincipalOut)),
                         _ReportRow(label: 'Total Interest Accrued', value: CurrencyFormatter.format(report.totalInterestAccrued)),
                         const Divider(height: 20),
                         _ReportRow(label: 'Total Due', value: CurrencyFormatter.format(report.totalDue), isHighlight: true),
@@ -749,6 +803,454 @@ class _CustomerDetailDrillDownState extends State<_CustomerDetailDrillDown> {
                             const Padding(
                               padding: EdgeInsets.all(12),
                               child: Text('No payments recorded', style: TextStyle(color: AppTheme.textMuted, fontSize: 13)),
+                            )
+                          else
+                            ...r.payments.map((p) => ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.payment, size: 20, color: AppTheme.emerald),
+                              title: Text('${p.paymentId.isNotEmpty ? AppIdFormatter.formatPaymentId(p.paymentId) : "PAY"} • ${CurrencyFormatter.format(p.amount)}'),
+                              subtitle: Text(
+                                '${AppDateFormatter.formatDate(p.date)} (Interest: ${CurrencyFormatter.format(p.interestPaid)}, Principal: ${CurrencyFormatter.format(p.principalPaid)})',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            )),
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// Lenders tab — shows a scrollable list of all lenders, each row displaying
+/// Lender Name, Active Records, Total Principal Taken, Total Interest Payable, Total Due to Lender.
+/// Tapping a row selects that lender and shows the detailed report drill-down (§6.1, §10.3).
+class _LenderReportsTab extends StatefulWidget {
+  final List<Lender> lenders;
+  final Lender? selectedLender;
+  final ValueChanged<Lender?> onLenderChanged;
+  final RecordRepository recordRepository;
+
+  const _LenderReportsTab({
+    required this.lenders,
+    required this.selectedLender,
+    required this.onLenderChanged,
+    required this.recordRepository,
+  });
+
+  @override
+  State<_LenderReportsTab> createState() => _LenderReportsTabState();
+}
+
+class _LenderReportsTabState extends State<_LenderReportsTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    if (widget.selectedLender != null) {
+      return _LenderDetailDrillDown(
+        lender: widget.selectedLender!,
+        recordRepository: widget.recordRepository,
+        onBack: () => widget.onLenderChanged(null),
+      );
+    }
+
+    return _LenderSummaryList(
+      lenders: widget.lenders,
+      recordRepository: widget.recordRepository,
+      onLenderSelected: widget.onLenderChanged,
+    );
+  }
+}
+
+/// Scrollable list of all lenders with LenderReport fields (§5.1, §6.1).
+class _LenderSummaryList extends StatefulWidget {
+  final List<Lender> lenders;
+  final RecordRepository recordRepository;
+  final ValueChanged<Lender> onLenderSelected;
+
+  const _LenderSummaryList({
+    required this.lenders,
+    required this.recordRepository,
+    required this.onLenderSelected,
+  });
+
+  @override
+  State<_LenderSummaryList> createState() => _LenderSummaryListState();
+}
+
+class _LenderSummaryListState extends State<_LenderSummaryList> {
+  late Future<List<LedgerRecord>> _recordsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _recordsFuture = widget.recordRepository.getAllActiveRecordsOnce();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LenderSummaryList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.lenders.length != oldWidget.lenders.length) {
+      setState(() {
+        _recordsFuture = widget.recordRepository.getAllActiveRecordsOnce();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<LedgerRecord>>(
+      future: _recordsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading lender reports: ${snapshot.error}', style: const TextStyle(color: AppTheme.dangerRed)));
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final records = snapshot.data!;
+        final today = DateTime.now().dateOnly;
+        final allReports = CalculationEngine.getLenderReports(
+          lenders: widget.lenders,
+          records: records,
+          today: today,
+        );
+        // §10.3: A borrower or lender with zero active records on their side simply doesn't appear here
+        final reports = allReports.where((r) => r.activeRecordCount > 0).toList();
+
+        if (reports.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.account_balance_outlined, size: 64, color: AppTheme.textMuted.withValues(alpha: 0.5)),
+                const SizedBox(height: 16),
+                const Text(
+                  'No lenders found',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: reports.length,
+          itemBuilder: (context, index) {
+            final report = reports[index];
+            return _LenderReportCard(
+              report: report,
+              onTap: () => widget.onLenderSelected(report.lender),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+/// Interactive lender card rendering LenderReport fields (§5.1, §6.1).
+class _LenderReportCard extends StatelessWidget {
+  final LenderReport report;
+  final VoidCallback onTap;
+
+  const _LenderReportCard({
+    required this.report,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final lender = report.lender;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          lender.name,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${AppIdFormatter.formatLenderId(lender.displayId)} • ${lender.lenderType.displayName}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.gold,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentCyan.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.accentCyan.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      '${report.activeRecordCount} Active',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.accentCyan,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right, color: AppTheme.textMuted),
+                ],
+              ),
+              const Divider(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: _FieldColumn(
+                      label: 'Principal Taken',
+                      value: CurrencyFormatter.format(report.totalPrincipalTaken),
+                    ),
+                  ),
+                  Expanded(
+                    child: _FieldColumn(
+                      label: 'Interest Payable',
+                      value: CurrencyFormatter.format(report.totalInterestPayable),
+                    ),
+                  ),
+                  Expanded(
+                    child: _FieldColumn(
+                      label: 'Total Due',
+                      value: CurrencyFormatter.format(report.totalDueToLender),
+                      isHighlight: true,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Navigation drill-down displaying selected lender's detailed report (§6.1, §10.3).
+class _LenderDetailDrillDown extends StatefulWidget {
+  final Lender lender;
+  final RecordRepository recordRepository;
+  final VoidCallback onBack;
+
+  const _LenderDetailDrillDown({
+    required this.lender,
+    required this.recordRepository,
+    required this.onBack,
+  });
+
+  @override
+  State<_LenderDetailDrillDown> createState() => _LenderDetailDrillDownState();
+}
+
+class _LenderDetailDrillDownState extends State<_LenderDetailDrillDown> {
+  late Future<List<LedgerRecord>> _recordsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _recordsFuture = _loadRecords();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LenderDetailDrillDown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.lender.id != oldWidget.lender.id) {
+      setState(() {
+        _recordsFuture = _loadRecords();
+      });
+    }
+  }
+
+  Future<List<LedgerRecord>> _loadRecords() async {
+    final allRecords = await widget.recordRepository.getAllRecordsOnce();
+    return allRecords.where((r) => r.lenderId == widget.lender.id && r.isTaken).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lender = widget.lender;
+    final onBack = widget.onBack;
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: [
+            IconButton(
+              key: const Key('reports_lender_drilldown_back_button'),
+              icon: const Icon(Icons.arrow_back),
+              tooltip: 'Back to all lenders',
+              onPressed: onBack,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    lender.name,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '${AppIdFormatter.formatLenderId(lender.displayId)} • ${lender.lenderType.displayName}${lender.phone != null && lender.phone!.isNotEmpty ? " • ${lender.phone}" : ""}',
+                    style: const TextStyle(color: AppTheme.gold, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        FutureBuilder<List<LedgerRecord>>(
+          future: _recordsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              debugPrint('LENDER DRILL DOWN ERROR: ${snapshot.error}\n${snapshot.stackTrace}');
+            }
+            if (!snapshot.hasData) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+
+            final records = snapshot.data!;
+            final lenderReports = CalculationEngine.getLenderReports(
+              lenders: [lender],
+              records: records,
+              today: DateTime.now().dateOnly,
+            );
+            final report = lenderReports.isNotEmpty
+                ? lenderReports.first
+                : LenderReport(
+                    lender: lender,
+                    activeRecordCount: 0,
+                    totalPrincipalTaken: 0.0,
+                    totalInterestPayable: 0.0,
+                    totalDueToLender: 0.0,
+                  );
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Card(
+                  color: AppTheme.subCardDark,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        _ReportRow(label: 'Lender ID', value: AppIdFormatter.formatLenderId(lender.displayId)),
+                        _ReportRow(label: 'Lender Name', value: lender.name),
+                        _ReportRow(label: 'Lender Type', value: lender.lenderType.displayName),
+                        if (lender.phone != null && lender.phone!.isNotEmpty)
+                          _ReportRow(label: 'Phone', value: lender.phone!),
+                        if (lender.institutionDetails != null && lender.institutionDetails!.isNotEmpty)
+                          _ReportRow(label: 'Details', value: lender.institutionDetails!),
+                        const Divider(height: 16),
+                        _ReportRow(label: 'Active Records', value: '${report.activeRecordCount}'),
+                        _ReportRow(label: 'Total Principal Taken', value: CurrencyFormatter.format(report.totalPrincipalTaken)),
+                        _ReportRow(label: 'Total Interest Payable', value: CurrencyFormatter.format(report.totalInterestPayable)),
+                        const Divider(height: 20),
+                        _ReportRow(label: 'Total Due to Lender', value: CurrencyFormatter.format(report.totalDueToLender), isHighlight: true),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Record History (Loans Taken)',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (records.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(
+                      child: Text(
+                        'No loan records found for this lender.',
+                        style: TextStyle(color: AppTheme.textMuted),
+                      ),
+                    ),
+                  )
+                else
+                  ...records.map((r) {
+                    final fin = CalculationEngine.calculateRecordFinancials(r, DateTime.now());
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ExpansionTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppTheme.emerald.withValues(alpha: 0.15),
+                          child: const Icon(
+                            Icons.arrow_downward_rounded,
+                            color: AppTheme.emerald,
+                          ),
+                        ),
+                        title: Text('${AppIdFormatter.formatTransactionId(r.transactionId)} • ${CurrencyFormatter.format(r.principalAmount)}'),
+                        subtitle: Text(
+                          'Taken: ${AppDateFormatter.formatDate(r.startDate)} • Duration: ${AppDateFormatter.formatMonths(fin.months)} • Rate: ${r.interestRate}%/mo',
+                        ),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: r.status == RecordStatus.ACTIVE
+                                ? AppTheme.gold.withValues(alpha: 0.15)
+                                : AppTheme.cardDark,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            r.status.name.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: r.status == RecordStatus.ACTIVE ? AppTheme.gold : AppTheme.textMuted,
+                            ),
+                          ),
+                        ),
+                        children: [
+                          if (r.payments.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Text('No repayments recorded', style: TextStyle(color: AppTheme.textMuted, fontSize: 13)),
                             )
                           else
                             ...r.payments.map((p) => ListTile(

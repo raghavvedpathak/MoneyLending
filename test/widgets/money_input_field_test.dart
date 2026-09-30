@@ -22,6 +22,7 @@ void main() {
       expect(find.text('Principal Amount'), findsOneWidget);
       expect(find.text('1500.5'), findsOneWidget);
       expect(find.text('₹ '), findsOneWidget);
+      expect(updatedValue, isNull);
     });
 
     testWidgets('accepts valid 2-decimal money and refuses 3rd decimal digit', (tester) async {

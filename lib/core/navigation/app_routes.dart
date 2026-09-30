@@ -23,6 +23,16 @@ class CustomersRoute extends AppRoute {
   String get path => '/customers';
 }
 
+/// Cosmetic rename for CustomersRoute (§10.1)
+typedef BorrowersRoute = CustomersRoute;
+
+/// Navigation peer to Borrowers entry point (§10.1)
+class LendersRoute extends AppRoute {
+  const LendersRoute();
+  @override
+  String get path => '/lenders';
+}
+
 class ReportsRoute extends AppRoute {
   const ReportsRoute();
   @override
@@ -61,6 +71,32 @@ class RecordDetailRoute extends AppRoute {
   @override
   String get route => 'record/{$arg}';
   String resolve() => 'record/$recordId';
+}
+
+// [FIX-LENDER-CODEPATH-1] (v1.27) the TAKEN-side party detail route
+class LenderDetailRoute extends AppRoute {
+  const LenderDetailRoute(this.lenderId);
+  final String lenderId;
+  @override
+  String get path => '/lender/$lenderId';
+
+  static const String arg = 'lenderId';
+  @override
+  String get route => 'lender/{$arg}';
+  String resolve() => 'lender/$lenderId';
+}
+
+// [FIX-NAV-PUSH-1] (v1.27) notification deep links (payload = route path, see section 8)
+class OverdueReportRoute extends AppRoute {
+  const OverdueReportRoute();
+  @override
+  String get path => '/reports/overdue'; // Reports tab, Overdue sub-tab preselected
+}
+
+class DashboardAlertsRoute extends AppRoute {
+  const DashboardAlertsRoute();
+  @override
+  String get path => '/dashboard?focus=alerts'; // scrolls to the Collection Alert Section
 }
 
 /// Modal / Sub-routes for entry and payments
@@ -106,6 +142,8 @@ class AddPaymentRoute extends AppRoute {
 abstract final class AppRoutes {
   static const DashboardRoute dashboard = DashboardRoute();
   static const CustomersRoute customers = CustomersRoute();
+  static const BorrowersRoute borrowers = CustomersRoute();
+  static const LendersRoute lenders = LendersRoute();
   static const ReportsRoute reports = ReportsRoute();
   static const SettingsRoute settings = SettingsRoute();
 }
@@ -113,6 +151,8 @@ abstract final class AppRoutes {
 // Type aliases for backwards-compatibility
 typedef Dashboard = DashboardRoute;
 typedef Customers = CustomersRoute;
+typedef Borrowers = CustomersRoute;
+typedef Lenders = LendersRoute;
 typedef Reports = ReportsRoute;
 typedef Settings = SettingsRoute;
 
@@ -137,10 +177,14 @@ class AppNavigator {
     final String resolvedPath = switch (route) {
       DashboardRoute() => 'dashboard',
       CustomersRoute() => 'customers',
+      LendersRoute() => 'lenders',
       ReportsRoute() => 'reports',
       SettingsRoute() => 'settings',
       CustomerDetailRoute r => r.resolve(),
       RecordDetailRoute r => r.resolve(),
+      LenderDetailRoute r => r.resolve(),
+      OverdueReportRoute _ => 'reports/overdue',
+      DashboardAlertsRoute _ => 'dashboard',
       AddEntryRoute _ => 'entry/add',
       EditEntryRoute r => r.resolve(),
       AddPaymentRoute r => r.resolve(),
@@ -181,6 +225,17 @@ extension AppRouteNavigationExtension on BuildContext {
 
   Future<T?> pushCustomerDetail<T extends Object?>(String customerId) =>
       push<T>(CustomerDetailRoute(customerId).path);
+
+  void goLenderDetail(String lenderId) =>
+      go(LenderDetailRoute(lenderId).path);
+
+  Future<T?> pushLenderDetail<T extends Object?>(String lenderId) =>
+      push<T>(LenderDetailRoute(lenderId).path);
+
+  void goLenders() => go(const LendersRoute().path);
+
+  Future<T?> pushLenders<T extends Object?>() =>
+      push<T>(const LendersRoute().path);
 
   void goRecordDetail(String recordId, {LedgerRecord? record}) =>
       go(RecordDetailRoute(recordId, record: record).path,

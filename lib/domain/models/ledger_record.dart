@@ -13,34 +13,36 @@ import 'record_type.dart';
 class LedgerRecord {
   final String id;
   final String transactionId;
+  final String? customerId;
+  final String? lenderId;
   final RecordType type;
-  final String customerId;
-  final String? customerName;
+  final RecordStatus status;
   final DateTime startDate;
   final DateTime? endDate;
   final double principalAmount;
   final double interestRate;
-  final RecordStatus status;
   final DateTime? settledDate;
   final double? calculatedInterest;
   final String? linkedRecordId;
+  final String? customerName;
   final List<LedgerItem> items;
   final List<Payment> payments;
 
   const LedgerRecord({
     required this.id,
     required this.transactionId,
+    this.customerId,
+    this.lenderId,
     required this.type,
-    required this.customerId,
-    this.customerName,
+    required this.status,
     required this.startDate,
     this.endDate,
     required this.principalAmount,
     required this.interestRate,
-    required this.status,
     this.settledDate,
     this.calculatedInterest,
     this.linkedRecordId,
+    this.customerName,
     this.items = const [],
     this.payments = const [],
   });
@@ -66,11 +68,13 @@ class LedgerRecord {
   /// Always available for any ACTIVE record (full payoff or early collateral release).
   bool get canBeSettled => isActive;
 
+  /// [FIX-CHECKPAYMENT-DRAFT-1] (v1.27) used by the checkPaymentInsert() / reallocatePayments() dry runs.
   LedgerRecord copyWith({
     String? id,
     String? transactionId,
     RecordType? type,
     String? customerId,
+    String? lenderId,
     String? customerName,
     DateTime? startDate,
     DateTime? endDate,
@@ -87,17 +91,18 @@ class LedgerRecord {
     return LedgerRecord(
       id: id ?? this.id,
       transactionId: transactionId ?? this.transactionId,
-      type: type ?? this.type,
       customerId: customerId ?? this.customerId,
-      customerName: customerName ?? this.customerName,
+      lenderId: lenderId ?? this.lenderId,
+      type: type ?? this.type,
+      status: status ?? this.status,
       startDate: startDate ?? this.startDate,
       endDate: endDate ?? this.endDate,
       principalAmount: principalAmount ?? this.principalAmount,
       interestRate: interestRate ?? this.interestRate,
-      status: status ?? this.status,
       settledDate: settledDate ?? this.settledDate,
       calculatedInterest: calculatedInterest ?? this.calculatedInterest,
       linkedRecordId: clearLinkedRecord ? null : (linkedRecordId ?? this.linkedRecordId),
+      customerName: customerName ?? this.customerName,
       items: items ?? this.items,
       payments: payments ?? this.payments,
     );

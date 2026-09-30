@@ -33,7 +33,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   Future<void> _loadCustomers() async {
     try {
-      final customers = await _customerRepository.getAllCustomers().first;
+      final customers = await _customerRepository.getAllCustomersOnce();
       if (mounted) {
         setState(() {
           _allCustomers = customers;
@@ -59,6 +59,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       _filteredCustomers = _allCustomers.where((c) {
         return c.name.toLowerCase().contains(q) ||
             c.displayId.toLowerCase().contains(q) ||
+            AppIdFormatter.formatCustomerId(c.displayId).toLowerCase().contains(q) ||
             (c.phone != null && c.phone!.contains(q));
       }).toList();
     }
@@ -69,7 +70,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
     if (added == true && mounted) {
       _loadCustomers();
       ScaffoldMessenger.of(context).showSnackBar(
-        AppTheme.successSnackBar('Customer added!'),
+        AppTheme.successSnackBar('Borrower added!'),
       );
     }
   }
@@ -319,7 +320,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Customers'),
+        title: const Text('Borrowers'),
       ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'customers_fab',
@@ -329,12 +330,40 @@ class _CustomersScreenState extends State<CustomersScreen> {
       ),
       body: Column(
         children: [
+          // Borrowers | Lenders Segmented Control (§10.2 peer entry point)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment<int>(
+                    value: 0,
+                    label: Text('Borrowers'),
+                    icon: Icon(Icons.people_outline, size: 18),
+                  ),
+                  ButtonSegment<int>(
+                    value: 1,
+                    label: Text('Lenders'),
+                    icon: Icon(Icons.account_balance_outlined, size: 18),
+                  ),
+                ],
+                selected: const {0},
+                onSelectionChanged: (val) {
+                  if (val.first == 1) {
+                    AppNavigator.navigate(context, const LendersRoute());
+                  }
+                },
+              ),
+            ),
+          ),
+
           // Search Bar
           Padding(
             padding: const EdgeInsets.all(16),
             child: TextField(
               decoration: InputDecoration(
-                hintText: 'Search by name, ID (e.g. CUST-0001), phone...',
+                hintText: 'Search by borrower name, ID (e.g. CUST26-27-01), phone...',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
@@ -357,84 +386,83 @@ class _CustomersScreenState extends State<CustomersScreen> {
             ),
           ),
 
-          // Customer List
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _filteredCustomers.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.people_outline, size: 64, color: AppTheme.textMuted),
-                            const SizedBox(height: 16),
-                            Text(
-                              _searchQuery.isNotEmpty ? 'No matching customers' : 'No customers added yet',
-                              style: const TextStyle(fontSize: 16, color: AppTheme.textSecondary),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: _filteredCustomers.length,
-                        itemBuilder: (context, index) {
-                          final customer = _filteredCustomers[index];
-                          return Card(
-                            child: ListTile(
-                              onTap: () async {
-                                await AppNavigator.navigate(
-                                  context,
-                                  CustomerDetailRoute(customer.id),
-                                );
-                                if (mounted) {
-                                  _loadCustomers();
-                                }
-                              },
-                              leading: CircleAvatar(
-                                backgroundColor: AppTheme.gold.withValues(alpha: 0.15),
-                                foregroundColor: AppTheme.gold,
-                                child: Text(
-                                  customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
+            // Borrower List
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _filteredCustomers.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.people_outline, size: 64, color: AppTheme.textMuted),
+                              const SizedBox(height: 16),
+                              Text(
+                                _searchQuery.isNotEmpty ? 'No matching borrowers' : 'No borrowers added yet',
+                                style: const TextStyle(fontSize: 16, color: AppTheme.textSecondary),
                               ),
-                              title: Text(
-                                customer.name,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    AppIdFormatter.formatCustomerId(customer.displayId),
-                                    style: const TextStyle(
-                                      color: AppTheme.gold,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: _filteredCustomers.length,
+                          itemBuilder: (context, index) {
+                            final customer = _filteredCustomers[index];
+                            return Card(
+                              child: ListTile(
+                                onTap: () async {
+                                  await AppNavigator.navigate(
+                                    context,
+                                    CustomerDetailRoute(customer.id),
+                                  );
+                                  if (mounted) {
+                                    _loadCustomers();
+                                  }
+                                },
+                                leading: CircleAvatar(
+                                  backgroundColor: AppTheme.gold.withValues(alpha: 0.15),
+                                  foregroundColor: AppTheme.gold,
+                                  child: Text(
+                                    customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
                                   ),
-                                  if (customer.phone != null && customer.phone!.isNotEmpty) ...[
+                                ),
+                                title: Text(
+                                  customer.name,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     const SizedBox(height: 2),
                                     Text(
-                                      customer.phone!,
-                                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                                      AppIdFormatter.formatCustomerId(customer.displayId),
+                                      style: const TextStyle(
+                                        color: AppTheme.gold,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
                                     ),
+                                    if (customer.phone != null && customer.phone!.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        customer.phone!,
+                                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
+                                trailing: const Icon(
+                                  Icons.arrow_forward_ios_rounded,
+                                  size: 14,
+                                  color: AppTheme.textMuted,
+                                ),
                               ),
-                              trailing: const Icon(
-                                Icons.arrow_forward_ios_rounded,
-                                size: 14,
-                                color: AppTheme.textMuted,
-                              ),
-                            ),
-                          );
-
-                        },
-                      ),
-          ),
-        ],
+                            );
+                          },
+                        ),
+            ),
+          ],
       ),
     );
   }

@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../data/datasources/database_helper.dart';
 
-export '../schema/app_database.dart' show openConnection;
+export '../schema/app_database.dart' show openAppConnection, openConnection;
 
 /// Drift AppDatabase type representation (§4.3 [FIX-ARCH-DB-1]).
 ///
@@ -17,8 +17,11 @@ typedef AppDatabase = DatabaseHelper;
 ///   database instances, each with its own connection and WAL file, causing data inconsistency.
 /// - Direct equivalent of the Kotlin spec's Hilt @Singleton requirement.
 /// - Properly closes the database on provider disposal via ref.onDispose(db.close).
-final appDatabaseProvider = Provider<AppDatabase>((ref) {
+/// Functional accessor matching @Riverpod(keepAlive: true) spec signature (§4.3 [FIX-ARCH-DB-1]):
+AppDatabase appDatabase(Ref ref) {
   final db = DatabaseHelper.instance;
   ref.onDispose(db.close);
   return db;
-});
+}
+
+final appDatabaseProvider = Provider<AppDatabase>((ref) => appDatabase(ref));

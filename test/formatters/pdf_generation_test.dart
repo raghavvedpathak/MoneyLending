@@ -201,6 +201,13 @@ void main() {
       expect(statement.totalPrincipal, 30000.0);
       expect(statement.totalInterestAccrued, greaterThan(0.0));
       expect(statement.totalDue, greaterThan(0.0));
+      // Summary footer reading BorrowerReport (§5.1, §6.2)
+      expect(statement.borrowerReport, isNotNull);
+      expect(statement.borrowerReport!.totalPrincipalOut, 30000.0);
+      expect(statement.totalPrincipalOut, 30000.0);
+      expect(statement.borrowerReport!.activeRecordCount, 1);
+      expect(statement.borrowerReport!.totalDue, statement.totalDue);
+      expect(statement.borrowerReport!.totalInterestAccrued, statement.totalInterestAccrued);
 
       // Build Document and PDF
       final doc = statement.buildDocument();
@@ -315,83 +322,285 @@ void main() {
       expect(bytes.length, greaterThan(500));
       expect(bytes[0], 0x25); // %
     });
+
+    test('generateLenderStatement generates full single-lender ledger report (§6.1, §6.2b)', () async {
+      final lender = Lender(
+        id: 'l-1',
+        displayId: 'LEND26-27-01',
+        lenderType: LenderType.institution,
+        name: 'Apex Finance Corp',
+        phone: '9876543210',
+        institutionDetails: 'Registered NBFC Lic 1234',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      );
+
+      final takenRecord = LedgerRecord(
+        id: 'rec-t-1',
+        transactionId: 'TRAN092699',
+        type: RecordType.TAKEN,
+        lenderId: 'l-1',
+        principalAmount: 40000.0,
+        interestRate: 1.5,
+        startDate: DateTime(2026, 1, 1),
+        status: RecordStatus.ACTIVE,
+        payments: [
+          Payment(
+            id: 'pay-t-1',
+            paymentId: 'PAY092699',
+            recordId: 'rec-t-1',
+            amount: 1000.0,
+            date: DateTime(2026, 3, 1),
+            interestPaid: 600.0,
+            principalPaid: 400.0,
+          ),
+        ],
+      );
+
+      final statement = generateLenderStatement(
+        lender,
+        [takenRecord],
+        businessInfo,
+        testToday,
+      );
+
+      expect(statement.lender.id, 'l-1');
+      expect(statement.records.length, 1);
+      expect(statement.activeRecordCount, 1);
+      expect(statement.settledRecordCount, 0);
+      expect(statement.totalPrincipalTaken, 40000.0);
+      expect(statement.totalPaid, 1000.0);
+      expect(statement.totalInterestPayable, greaterThan(0.0));
+      expect(statement.totalDueToLender, greaterThan(0.0));
+      // Summary footer reading LenderReport (§5.1, §6.2b)
+      expect(statement.lenderReport, isNotNull);
+      expect(statement.lenderReport!.totalPrincipalTaken, 40000.0);
+      expect(statement.lenderReport!.activeRecordCount, 1);
+      expect(statement.lenderReport!.totalDueToLender, statement.totalDueToLender);
+      expect(statement.lenderReport!.totalInterestPayable, statement.totalInterestPayable);
+
+      final doc = statement.buildDocument();
+      expect(doc, isNotNull);
+      final pdfBytes = await statement.buildPdf();
+      expect(pdfBytes.length, greaterThan(1000));
+      expect(pdfBytes[0], 0x25); // %
+    });
+
+    test('generateAllBorrowersReport and generateAllLendersReport format Overdue Flag correctly per [FIX-PDF-OVERDUEFLAG-1]', () async {
+      final custA = Customer(id: 'c-a', displayId: 'CUST-0001', name: 'Alice', createdAt: DateTime(2026, 1, 1));
+      final custB = Customer(id: 'c-b', displayId: 'CUST-0002', name: 'Bob', createdAt: DateTime(2026, 1, 1));
+
+      final recA = LedgerRecord(
+        id: 'rec-a',
+        transactionId: 'TRAN092601',
+        type: RecordType.GIVEN,
+        customerId: 'c-a',
+        principalAmount: 10000.0,
+        interestRate: 2.0,
+        startDate: DateTime(2026, 1, 1),
+        status: RecordStatus.ACTIVE,
+      );
+      final recB = LedgerRecord(
+        id: 'rec-b',
+        transactionId: 'TRAN092602',
+        type: RecordType.GIVEN,
+        customerId: 'c-b',
+        principalAmount: 20000.0,
+        interestRate: 2.0,
+        startDate: DateTime(2026, 1, 1),
+        status: RecordStatus.ACTIVE,
+      );
+
+      // Pass overdueRecordIds containing only recA.id
+      final overdueIds = <String>{'rec-a'};
+
+      final borrowersReport = generateAllBorrowersReport(
+        [custA, custB],
+        [recA, recB],
+        overdueIds,
+        businessInfo,
+        testToday,
+      );
+
+      expect(borrowersReport.borrowerReports.length, 2);
+      expect(borrowersReport.overdueRecordIds, contains('rec-a'));
+      expect(borrowersReport.totalActiveRecords, 2);
+
+      // Build document and verify it builds cleanly
+      final docB = borrowersReport.buildDocument();
+      expect(docB, isNotNull);
+
+      // TAKEN side: AllLendersReport
+      final lenderA = Lender(
+        id: 'l-a',
+        displayId: 'LEND-0001',
+        lenderType: LenderType.individual,
+        name: 'Lender Alpha',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      );
+      final lenderB = Lender(
+        id: 'l-b',
+        displayId: 'LEND-0002',
+        lenderType: LenderType.institution,
+        name: 'Lender Beta',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      );
+
+      final recLA = LedgerRecord(
+        id: 'rec-la',
+        transactionId: 'TRAN092603',
+        type: RecordType.TAKEN,
+        lenderId: 'l-a',
+        principalAmount: 30000.0,
+        interestRate: 1.5,
+        startDate: DateTime(2026, 1, 1),
+        status: RecordStatus.ACTIVE,
+      );
+      final recLB = LedgerRecord(
+        id: 'rec-lb',
+        transactionId: 'TRAN092604',
+        type: RecordType.TAKEN,
+        lenderId: 'l-b',
+        principalAmount: 40000.0,
+        interestRate: 1.5,
+        startDate: DateTime(2026, 1, 1),
+        status: RecordStatus.ACTIVE,
+      );
+
+      final lendersReport = generateAllLendersReport(
+        [lenderA, lenderB],
+        [recLA, recLB],
+        <String>{'rec-la'}, // recLA is overdue
+        businessInfo,
+        testToday,
+      );
+
+      expect(lendersReport.lenderReports.length, 2);
+      expect(lendersReport.overdueRecordIds, contains('rec-la'));
+      expect(lendersReport.totalActiveRecords, 2);
+
+      final docL = lendersReport.buildDocument();
+      expect(docL, isNotNull);
+    });
   });
 
   group('Reports Screen FAB Routing by Active Sub-Tab (§6.1)', () {
-    test('Overview tab (index 0) displays FAB and routes to allCustomersReport', () {
+    test('Overview tab (index 0) hides FAB per §6.1', () {
       final vm = ReportsViewModel(initialTab: 0);
 
       expect(vm.activeSubTabIndex, 0);
-      expect(vm.isFabVisible, isTrue, reason: 'FAB must be visible on Overview tab');
-      expect(vm.currentFabAction, ReportsFabAction.allCustomersReport);
-
-      vm.dispose();
-    });
-
-    test('Customer tab (index 1) hides FAB when no customer is selected', () {
-      final vm = ReportsViewModel(initialTab: 1, initialCustomer: null);
-
-      expect(vm.activeSubTabIndex, 1);
-      expect(vm.selectedCustomer, isNull);
       expect(
         vm.isFabVisible,
         isFalse,
-        reason: 'FAB must be HIDDEN (not just disabled) when no customer is selected in Customer tab',
+        reason: 'Overview tab shows combined Given/Taken totals — FAB must be hidden per §6.1',
       );
       expect(vm.currentFabAction, ReportsFabAction.none);
 
       vm.dispose();
     });
 
-    test('Customer tab (index 1) displays FAB and routes to customerStatement when customer is selected', () {
-      final vm = ReportsViewModel(initialTab: 1, initialCustomer: null);
+    test('Borrowers tab (index 1) hides FAB when no borrower is selected', () {
+      final vm = ReportsViewModel(initialTab: 1, initialBorrower: null);
+
+      expect(vm.activeSubTabIndex, 1);
+      expect(vm.selectedBorrower, isNull);
+      expect(
+        vm.isFabVisible,
+        isFalse,
+        reason: 'FAB must be HIDDEN (not just disabled) when no borrower is selected in Borrowers tab (§6.1)',
+      );
+      expect(vm.currentFabAction, ReportsFabAction.none);
+
+      vm.dispose();
+    });
+
+    test('Borrowers tab (index 1) displays FAB and routes to customerStatement when borrower is selected', () {
+      final vm = ReportsViewModel(initialTab: 1, initialBorrower: null);
 
       expect(vm.isFabVisible, isFalse);
 
-      // User selects a customer
-      vm.selectCustomer(customer1);
+      // User selects a borrower
+      vm.selectBorrower(customer1);
 
-      expect(vm.selectedCustomer, equals(customer1));
-      expect(vm.isFabVisible, isTrue, reason: 'FAB must become visible when customer is in context');
+      expect(vm.selectedBorrower, equals(customer1));
+      expect(vm.isFabVisible, isTrue, reason: 'FAB must become visible when borrower is in context (§6.1)');
       expect(vm.currentFabAction, ReportsFabAction.customerStatement);
 
       // User clears selection
-      vm.clearSelectedCustomer();
-      expect(vm.isFabVisible, isFalse, reason: 'FAB must hide again when customer is cleared');
+      vm.clearSelectedBorrower();
+      expect(vm.isFabVisible, isFalse, reason: 'FAB must hide again when borrower is cleared (§6.1)');
       expect(vm.currentFabAction, ReportsFabAction.none);
 
       vm.dispose();
     });
 
-    test('Monthly tab (index 2) hides FAB regardless of customer selection', () {
-      final vm = ReportsViewModel(initialTab: 2, initialCustomer: customer1);
+    test('Lenders tab (index 2) hides FAB when no lender is selected, shows FAB when lender selected', () {
+      final lender = Lender(
+        id: 'l-test-1',
+        displayId: 'LEND26-27-01',
+        lenderType: LenderType.individual,
+        name: 'Apex Finance',
+        phone: '9999999999',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      );
+
+      final vm = ReportsViewModel(initialTab: 2, initialLender: null);
 
       expect(vm.activeSubTabIndex, 2);
+      expect(vm.selectedLender, isNull);
       expect(
         vm.isFabVisible,
         isFalse,
-        reason: 'Monthly tab has no PDF action defined — FAB must be hidden',
+        reason: 'FAB must be HIDDEN when no lender is selected in Lenders tab (§6.1)',
       );
+      expect(vm.currentFabAction, ReportsFabAction.none);
+
+      // Select lender
+      vm.selectLender(lender);
+      expect(vm.selectedLender, equals(lender));
+      expect(vm.isFabVisible, isTrue, reason: 'FAB must be visible when lender is in context (§6.1)');
+      expect(vm.currentFabAction, ReportsFabAction.lenderStatement);
+
+      // Clear lender
+      vm.clearSelectedLender();
+      expect(vm.isFabVisible, isFalse);
       expect(vm.currentFabAction, ReportsFabAction.none);
 
       vm.dispose();
     });
 
-    test('Overdue tab (index 3) hides FAB regardless of customer selection', () {
-      final vm = ReportsViewModel(initialTab: 3, initialCustomer: customer1);
+    test('Monthly tab (index 3) hides FAB regardless of party selection', () {
+      final vm = ReportsViewModel(initialTab: 3, initialBorrower: customer1);
 
       expect(vm.activeSubTabIndex, 3);
       expect(
         vm.isFabVisible,
         isFalse,
-        reason: 'Overdue tab has no PDF action defined — FAB must be hidden',
+        reason: 'Monthly tab has no PDF action defined — FAB must be hidden (§6.1)',
       );
       expect(vm.currentFabAction, ReportsFabAction.none);
 
       vm.dispose();
     });
 
-    test('Reactive state streams emit updates synchronously when switching tabs', () async {
+    test('Overdue tab (index 4) hides FAB regardless of party selection', () {
+      final vm = ReportsViewModel(initialTab: 4, initialBorrower: customer1);
+
+      expect(vm.activeSubTabIndex, 4);
+      expect(
+        vm.isFabVisible,
+        isFalse,
+        reason: 'Overdue tab has no PDF action defined — FAB must be hidden (§6.1)',
+      );
+      expect(vm.currentFabAction, ReportsFabAction.none);
+
+      vm.dispose();
+    });
+
+    test('Reactive state streams emit updates synchronously when switching tabs (§6.1)', () async {
       final vm = ReportsViewModel(initialTab: 0);
 
       final tabEvents = <int>[];
@@ -402,32 +611,42 @@ void main() {
       final subFab = vm.isFabVisibleStream.listen(fabVisibleEvents.add);
       final subAction = vm.fabActionStream.listen(fabActionEvents.add);
 
-      // 1. Switch to Customer tab without selected customer
+      // 1. Overview tab: FAB hidden
+      expect(vm.isFabVisible, isFalse);
+
+      // 2. Switch to Borrowers tab without selected borrower
       vm.setActiveSubTab(1);
       expect(vm.activeSubTabIndex, 1);
       expect(vm.isFabVisible, isFalse);
 
-      // 2. Select customer
-      vm.selectCustomer(customer1);
+      // 3. Select borrower
+      vm.selectBorrower(customer1);
       expect(vm.isFabVisible, isTrue);
       expect(vm.currentFabAction, ReportsFabAction.customerStatement);
 
-      // 3. Switch to Monthly tab (index 2)
+      // 4. Switch to Lenders tab (index 2) without lender selected -> FAB hides
       vm.setActiveSubTab(2);
+      expect(vm.activeSubTabIndex, 2);
       expect(vm.isFabVisible, isFalse);
 
-      // 4. Switch to Overdue tab (index 3)
+      // 5. Switch to Monthly tab (index 3) -> FAB hides
       vm.setActiveSubTab(3);
+      expect(vm.activeSubTabIndex, 3);
       expect(vm.isFabVisible, isFalse);
 
-      // 5. Switch back to Overview tab (index 0)
-      vm.setActiveSubTab(0);
+      // 6. Switch to Overdue tab (index 4) -> FAB hides
+      vm.setActiveSubTab(4);
+      expect(vm.activeSubTabIndex, 4);
+      expect(vm.isFabVisible, isFalse);
+
+      // 7. Switch back to Borrowers tab (index 1) -> borrower is still selected, FAB becomes visible again
+      vm.setActiveSubTab(1);
       expect(vm.isFabVisible, isTrue);
-      expect(vm.currentFabAction, ReportsFabAction.allCustomersReport);
+      expect(vm.currentFabAction, ReportsFabAction.customerStatement);
 
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      expect(tabEvents, [1, 2, 3, 0]);
+      expect(tabEvents, [1, 2, 3, 4, 1]);
       expect(fabVisibleEvents.contains(true), isTrue);
       expect(fabVisibleEvents.contains(false), isTrue);
 
@@ -440,66 +659,87 @@ void main() {
     test('ReportsNotifier alias and getFabTapHandler correctly routes callbacks (§6.1)', () async {
       final notifier = ReportsNotifier(initialTab: 0);
 
-      bool allCustomersTapped = false;
       bool customerStatementTapped = false;
+      bool lenderStatementTapped = false;
 
-      // 1. Overview tab: tap handler is non-null and triggers allCustomersReport
+      // 1. Overview tab: FAB hidden, tap handler is null
       var handler = notifier.getFabTapHandler(
-        onAllCustomersReport: () async {
-          allCustomersTapped = true;
-        },
         onCustomerStatement: (c) async {
           customerStatementTapped = true;
         },
+        onLenderStatement: (l) async {
+          lenderStatementTapped = true;
+        },
       );
-      expect(handler, isNotNull);
-      await handler!();
-      expect(allCustomersTapped, isTrue);
+      expect(handler, isNull, reason: 'Overview tab has no PDF action defined — handler must be null');
 
-      // 2. Customer tab without selection: handler is null
+      // 2. Borrowers tab without selection: handler is null
       notifier.activeSubTabIndex = 1;
-      notifier.selectedCustomer = null;
+      notifier.selectedBorrower = null;
       expect(notifier.isFabVisible, isFalse);
       expect(
         notifier.getFabTapHandler(
-          onAllCustomersReport: () async {},
           onCustomerStatement: (c) async {},
+          onLenderStatement: (l) async {},
         ),
         isNull,
       );
 
-      // 3. Customer tab with selection: handler routes to onCustomerStatement with selectedCustomer
-      notifier.selectedCustomer = customer1;
+      // 3. Borrowers tab with selection: handler routes to onCustomerStatement
+      notifier.selectedBorrower = customer1;
       expect(notifier.isFabVisible, isTrue);
       handler = notifier.getFabTapHandler(
-        onAllCustomersReport: () async {},
         onCustomerStatement: (c) async {
           expect(c.id, customer1.id);
           customerStatementTapped = true;
         },
+        onLenderStatement: (l) async {},
       );
       expect(handler, isNotNull);
       await handler!();
       expect(customerStatementTapped, isTrue);
 
-      // 4. Monthly tab (index 2): handler is null
-      notifier.activeSubTabIndex = 2;
-      expect(notifier.isFabVisible, isFalse);
-      expect(
-        notifier.getFabTapHandler(
-          onAllCustomersReport: () async {},
-          onCustomerStatement: (c) async {},
-        ),
-        isNull,
+      // 4. Lenders tab with selection: handler routes to onLenderStatement
+      final lender = Lender(
+        id: 'l-test-2',
+        displayId: 'LEND26-27-02',
+        lenderType: LenderType.institution,
+        name: 'Finance Corp',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
       );
+      notifier.activeSubTabIndex = 2;
+      notifier.selectedLender = lender;
+      expect(notifier.isFabVisible, isTrue);
+      handler = notifier.getFabTapHandler(
+        onCustomerStatement: (c) async {},
+        onLenderStatement: (l) async {
+          expect(l.id, lender.id);
+          lenderStatementTapped = true;
+        },
+      );
+      expect(handler, isNotNull);
+      await handler!();
+      expect(lenderStatementTapped, isTrue);
 
-      // 5. Overdue tab (index 3): handler is null
+      // 5. Monthly tab (index 3): handler is null
       notifier.activeSubTabIndex = 3;
       expect(notifier.isFabVisible, isFalse);
       expect(
         notifier.getFabTapHandler(
-          onAllCustomersReport: () async {},
           onCustomerStatement: (c) async {},
+          onLenderStatement: (l) async {},
+        ),
+        isNull,
+      );
+
+      // 6. Overdue tab (index 4): handler is null
+      notifier.activeSubTabIndex = 4;
+      expect(notifier.isFabVisible, isFalse);
+      expect(
+        notifier.getFabTapHandler(
+          onCustomerStatement: (c) async {},
+          onLenderStatement: (l) async {},
         ),
         isNull,
       );
@@ -548,6 +788,60 @@ void main() {
       expect(bytes[3], 0x46);
     });
 
+    test('compute(buildLenderStatementBytes, LenderStatementJob(...)) produces PDF bytes on background isolate [FIX-PDFBGTHREAD-1]', () async {
+      final lender = Lender(
+        id: 'l-iso-1',
+        displayId: 'LEND26-27-01',
+        lenderType: LenderType.individual,
+        name: 'Isolate Lender',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      );
+      final job = LenderStatementJob(
+        lender,
+        records,
+        businessInfo,
+        null,
+        testToday,
+      );
+
+      final bytes = await compute(buildLenderStatementBytes, job);
+
+      expect(bytes, isNotNull);
+      expect(bytes.length, greaterThan(500));
+      expect(bytes[0], 0x25);
+      expect(bytes[1], 0x50);
+      expect(bytes[2], 0x44);
+      expect(bytes[3], 0x46);
+    });
+
+    test('compute(buildAllLendersBytes, AllLendersJob(...)) produces PDF bytes on background isolate [FIX-PDFBGTHREAD-1]', () async {
+      final lender = Lender(
+        id: 'l-iso-2',
+        displayId: 'LEND26-27-02',
+        lenderType: LenderType.institution,
+        name: 'Isolate Lender Corp',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      );
+      final job = AllLendersJob(
+        [lender],
+        records,
+        businessInfo,
+        null,
+        testToday,
+      );
+
+      final bytes = await compute(buildAllLendersBytes, job);
+
+      expect(bytes, isNotNull);
+      expect(bytes.length, greaterThan(500));
+      expect(bytes[0], 0x25);
+      expect(bytes[1], 0x50);
+      expect(bytes[2], 0x44);
+      expect(bytes[3], 0x46);
+    });
+
     test('PdfShareService saves PDF to temp dir under pdfs/ matching §6.3 file path specification', () async {
       final tempDir = Directory.systemTemp.createTempSync('pdf_share_test_');
       addTearDown(() {
@@ -572,6 +866,12 @@ void main() {
 
     test('loadPdfFonts is exported and callable on UI isolate per [FIX-PDF-FONT-1] & §6.3', () {
       expect(loadPdfFonts, isA<Function>());
+    });
+
+    test('PdfShareService exposes shareWithShareXFiles and shareWithPrinting per §6.3', () {
+      final shareService = const PdfShareService();
+      expect(shareService.shareWithShareXFiles, isA<Function>());
+      expect(shareService.shareWithPrinting, isA<Function>());
     });
   });
 }

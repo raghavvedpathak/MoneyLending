@@ -752,6 +752,8 @@ class _FakeRecordRepo implements RecordRepository {
   @override
   Stream<List<LedgerRecord>> getRecordsByCustomer(String customerId) => throw UnimplementedError();
   @override
+  Stream<List<LedgerRecord>> getRecordsByLender(String lenderId) => throw UnimplementedError();
+  @override
   Future<List<RecordPaymentTotal>> getTotalPaidByRecordIds(List<String> recordIds) => throw UnimplementedError();
   @override
   Future<void> importRecordsTransactionally(List<LedgerRecord> records) => throw UnimplementedError();

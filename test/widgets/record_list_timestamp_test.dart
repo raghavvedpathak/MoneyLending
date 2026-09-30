@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:intl/intl.dart';
 import 'package:money_lending/core/di/injection.dart';
 import 'package:money_lending/domain/domain.dart';
 import 'package:money_lending/features/dashboard/screens/dashboard_screen.dart';
@@ -56,6 +55,10 @@ class MockRecordRepository implements RecordRepository {
 
   @override
   Stream<List<LedgerRecord>> getRecordsByCustomer(String customerId) =>
+      _recordsCtrl.stream;
+
+  @override
+  Stream<List<LedgerRecord>> getRecordsByLender(String lenderId) =>
       _recordsCtrl.stream;
 
   @override
@@ -227,6 +230,25 @@ class MockCustomerRepository implements CustomerRepository {
 
   @override
   Stream<List<Customer>> getAllCustomers() => Stream.value(customers);
+
+  @override
+  Stream<List<Customer>> watchAllCustomers() => getAllCustomers();
+
+  @override
+  Future<Customer> addCustomer({
+    required String name,
+    String? phone,
+    String? address,
+    required DateTime createdAt,
+  }) =>
+      insertCustomer(Customer(
+        id: '',
+        displayId: '',
+        name: name,
+        phone: phone,
+        address: address,
+        createdAt: createdAt,
+      ));
 
   @override
   Future<List<Customer>> getAllCustomersOnce() async => customers;

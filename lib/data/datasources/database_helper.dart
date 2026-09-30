@@ -10,11 +10,13 @@ import '../../domain/errors/record_linked_taken_exception.dart';
 import '../models/customer_entity.dart';
 import '../models/item_rate_entity.dart';
 import '../models/ledger_item_entity.dart';
+import '../models/lender_entity.dart';
 import '../models/payment_entity.dart';
 import '../models/record_entity.dart';
 import '../models/settings_entity.dart';
 import 'daos/customer_dao.dart';
 import 'daos/item_rate_dao.dart';
+import 'daos/lender_dao.dart';
 import 'daos/payment_dao.dart';
 import 'daos/record_dao.dart';
 import 'daos/settings_dao.dart';
@@ -32,6 +34,7 @@ class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
   static final Lock _customerInsertLock = Lock();
+  static final Lock _lenderInsertLock = Lock();
   static final Lock _recordInsertLock = Lock();
   static final Lock _rateUpsertLock = Lock();
   static final Lock _paymentInsertLock = Lock();
@@ -86,6 +89,7 @@ class DatabaseHelper {
   Future<RecordDao> get recordDao async => RecordDao(await database);
   Future<PaymentDao> get paymentDao async => PaymentDao(await database);
   Future<CustomerDao> get customerDao async => CustomerDao(await database);
+  Future<LenderDao> get lenderDao async => LenderDao(await database);
   Future<SettingsDao> get settingsDao async => SettingsDao(await database);
   Future<ItemRateDao> get itemRateDao async => ItemRateDao(await database);
 
@@ -138,6 +142,29 @@ class DatabaseHelper {
         await db.execute('ALTER TABLE ledger_items ADD COLUMN sourceItemId TEXT');
       }
     } catch (_) {}
+    try {
+      final recCols = await db.rawQuery("PRAGMA table_info('records')");
+      final recColNames = recCols.map((c) => c['name'] as String).toSet();
+      if (!recColNames.contains('lenderId')) {
+        await db.execute('ALTER TABLE records ADD COLUMN lenderId TEXT');
+      }
+    } catch (_) {}
+    try {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS lenders (
+          id TEXT PRIMARY KEY,
+          displayId TEXT NOT NULL UNIQUE,
+          lenderType TEXT NOT NULL,
+          name TEXT NOT NULL,
+          phone TEXT,
+          institutionDetails TEXT,
+          notes TEXT,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL
+        )
+      ''');
+      await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_lenders_displayId ON lenders(displayId)');
+    } catch (_) {}
   }
 
   Future<void> _onConfigure(Database db) async {
@@ -177,7 +204,8 @@ class DatabaseHelper {
         id TEXT PRIMARY KEY,
         transactionId TEXT NOT NULL UNIQUE,
         type TEXT NOT NULL,
-        customerId TEXT NOT NULL,
+        customerId TEXT,
+        lenderId TEXT,
         customerName TEXT,
         startDate TEXT NOT NULL,
         endDate TEXT,
@@ -187,7 +215,8 @@ class DatabaseHelper {
         settledDate TEXT,
         calculatedInterest REAL,
         linkedRecordId TEXT,
-        FOREIGN KEY (customerId) REFERENCES customers (id) ON DELETE CASCADE
+        FOREIGN KEY (customerId) REFERENCES customers (id) ON DELETE CASCADE,
+        FOREIGN KEY (lenderId) REFERENCES lenders (id) ON DELETE RESTRICT
       )
     ''');
     await db.execute('CREATE UNIQUE INDEX idx_records_transactionId ON records(transactionId)');
@@ -267,6 +296,22 @@ class DatabaseHelper {
         PRIMARY KEY (kind, displayId)
       )
     ''');
+
+    // 8. lenders table (§4.1 & §4.3 [FIX-LENDER-CODEPATH-1])
+    await db.execute('''
+      CREATE TABLE lenders (
+        id TEXT PRIMARY KEY,
+        displayId TEXT NOT NULL UNIQUE,
+        lenderType TEXT NOT NULL,
+        name TEXT NOT NULL,
+        phone TEXT,
+        institutionDetails TEXT,
+        notes TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    ''');
+    await db.execute('CREATE UNIQUE INDEX idx_lenders_displayId ON lenders(displayId)');
   }
 
   // ===========================================================================
@@ -354,6 +399,10 @@ class DatabaseHelper {
     });
   }
 
+  /// Alias for sequence-synchronized customer insertion (mirrors insertLenderWithSequence).
+  Future<CustomerEntity> insertCustomerWithSequence(CustomerEntity customer) =>
+      insertCustomer(customer);
+
   Future<List<CustomerEntity>> getAllCustomers() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('customers', orderBy: 'name ASC');
@@ -369,6 +418,111 @@ class DatabaseHelper {
     );
     if (maps.isEmpty) return null;
     return CustomerEntity.fromMap(maps.first);
+  }
+
+  // ===========================================================================
+  // LENDER OPERATIONS & CONCURRENCY-SAFE SEQUENCE [FIX-LENDER-CODEPATH-1]
+  // ===========================================================================
+
+  /// Thread-safe generation of next lender displayId in the format LEND26-27-01 (§4.3 [FIX-LENDER-CODEPATH-1]).
+  /// Format: LEND + FY start year (2 digits) + - + FY end year (2 digits) + - + sequence (2 digits).
+  /// Respects retired lender displayIds (Addendum G, FIX-ID-REUSE-1).
+  Future<String> generateNextLenderDisplayId(DatabaseExecutor db, [DateTime? date]) async {
+    final refDate = date ?? DateTime.now();
+    final year = refDate.year;
+    final month = refDate.month;
+    final startYear = (month >= 4 ? year : year - 1) % 100;
+    final endYear = (month >= 4 ? year + 1 : year) % 100;
+    final prefix = 'LEND${startYear.toString().padLeft(2, '0')}-${endYear.toString().padLeft(2, '0')}-';
+    final altPrefix = 'LEND-${startYear.toString().padLeft(2, '0')}/${endYear.toString().padLeft(2, '0')}-';
+
+    final result = await db.rawQuery(
+      'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM lenders WHERE displayId LIKE ?',
+      [prefix.length + 1, '$prefix%'],
+    );
+
+    int maxLend = 0;
+    if (result.isNotEmpty && result.first['maxSeq'] != null) {
+      maxLend = (result.first['maxSeq'] as num).toInt();
+    }
+
+    try {
+      final altResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM lenders WHERE displayId LIKE ?',
+        [altPrefix.length + 1, '$altPrefix%'],
+      );
+      if (altResult.isNotEmpty && altResult.first['maxSeq'] != null) {
+        final val = (altResult.first['maxSeq'] as num).toInt();
+        if (val > maxLend) maxLend = val;
+      }
+    } catch (_) {}
+
+    int maxRetired = 0;
+    try {
+      final retiredResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM retired_ids WHERE kind = ? AND displayId LIKE ?',
+        [prefix.length + 1, 'lender', '$prefix%'],
+      );
+      if (retiredResult.isNotEmpty && retiredResult.first['maxSeq'] != null) {
+        maxRetired = (retiredResult.first['maxSeq'] as num).toInt();
+      }
+    } catch (_) {}
+
+    try {
+      final altRetiredResult = await db.rawQuery(
+        'SELECT MAX(CAST(SUBSTR(displayId, ?) AS INTEGER)) as maxSeq FROM retired_ids WHERE kind = ? AND displayId LIKE ?',
+        [altPrefix.length + 1, 'lender', '$altPrefix%'],
+      );
+      if (altRetiredResult.isNotEmpty && altRetiredResult.first['maxSeq'] != null) {
+        final val = (altRetiredResult.first['maxSeq'] as num).toInt();
+        if (val > maxRetired) maxRetired = val;
+      }
+    } catch (_) {}
+
+    final nextSeq = (maxLend > maxRetired ? maxLend : maxRetired) + 1;
+    final padded = nextSeq.toString().padLeft(2, '0');
+    return '$prefix$padded';
+  }
+
+  /// Inserts a lender with synchronized sequence generation under _lenderInsertLock (Addendum G.2).
+  Future<LenderEntity> insertLenderWithSequence(LenderEntity lender) async {
+    return await _lenderInsertLock.synchronized(() async {
+      final db = await database;
+      return await db.transaction((txn) async {
+        String effectiveDisplayId = lender.displayId;
+        if (effectiveDisplayId.isEmpty) {
+          DateTime? createdDate;
+          try {
+            createdDate = DateTime.parse(lender.createdAt);
+          } catch (_) {}
+          effectiveDisplayId = await generateNextLenderDisplayId(txn, createdDate);
+        }
+
+        final toInsert = lender.copyWith(displayId: effectiveDisplayId);
+        await txn.insert('lenders', toInsert.toMap());
+        return toInsert;
+      });
+    });
+  }
+
+  /// Alias for [insertLenderWithSequence].
+  Future<LenderEntity> insertLender(LenderEntity lender) => insertLenderWithSequence(lender);
+
+  Future<List<LenderEntity>> getAllLenders() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('lenders', orderBy: 'name ASC');
+    return maps.map((m) => LenderEntity.fromMap(m)).toList();
+  }
+
+  Future<LenderEntity?> getLenderById(String id) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'lenders',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (maps.isEmpty) return null;
+    return LenderEntity.fromMap(maps.first);
   }
 
   // ===========================================================================
@@ -547,6 +701,7 @@ class DatabaseHelper {
           transactionId: effectiveTxnId,
           type: record.type,
           customerId: record.customerId,
+          lenderId: record.lenderId,
           customerName: record.customerName,
           startDate: record.startDate,
           endDate: record.endDate,
@@ -790,14 +945,16 @@ class DatabaseHelper {
       await txn.delete('ledger_items');
       await txn.delete('records');
       await txn.delete('customers');
+      await txn.delete('lenders');
       await txn.delete('retired_ids');
     });
   }
 
   /// Transactional all-or-nothing backup restore [FIX-ID-BACKUP-1] & [FIX-BACKUPCONFIG-1]:
   /// Restoring a JSON backup is a replace-all, not a merge. Inside a single db.transaction(),
-  /// delete payments, ledger_items, records, customers and retired_ids explicitly
-  /// (child tables first — do not lean on the FK cascade), then insert everything from the backup.
+  /// delete payments, ledger_items, records, then customers and lenders, then retired_ids,
+  /// explicitly (child tables first — do not lean on the FK cascade), then insert everything
+  /// from the backup (customers, lenders, records, ledger_items, payments, retired_ids).
   /// settings and item_rates are part of the 1.4 backup ([FIX-BACKUPCONFIG-1]): when the file
   /// carries them they are replaced too (settings row overwritten, item_rates deleted and re-inserted);
   /// when it does not (1.1–1.3), they are left untouched.
@@ -805,6 +962,7 @@ class DatabaseHelper {
   /// data, and surface a clear error.
   Future<void> restoreBackupTransactionally({
     required List<Map<String, dynamic>> customers,
+    List<Map<String, dynamic>> lenders = const [],
     required List<Map<String, dynamic>> records,
     required List<Map<String, dynamic>> ledgerItems,
     required List<Map<String, dynamic>> payments,
@@ -819,6 +977,9 @@ class DatabaseHelper {
       await txn.delete('ledger_items');
       await txn.delete('records');
       await txn.delete('customers');
+      try {
+        await txn.delete('lenders');
+      } catch (_) {}
       await txn.delete('retired_ids');
 
       // 2. Settings and item_rates replaced only when present in backup [FIX-BACKUPCONFIG-1]
@@ -835,6 +996,11 @@ class DatabaseHelper {
       // 3. Insert everything from backup with abort conflict algorithm
       for (final c in customers) {
         await txn.insert('customers', c, conflictAlgorithm: ConflictAlgorithm.abort);
+      }
+      for (final l in lenders) {
+        try {
+          await txn.insert('lenders', l, conflictAlgorithm: ConflictAlgorithm.abort);
+        } catch (_) {}
       }
       for (final r in records) {
         await txn.insert('records', r, conflictAlgorithm: ConflictAlgorithm.abort);

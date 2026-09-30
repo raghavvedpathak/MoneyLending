@@ -2,13 +2,16 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show DartPluginRegistrant;
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/calculations/calculation_engine.dart';
 import '../../core/calculations/util/date_extensions.dart';
+import '../../core/navigation/app_routes.dart';
 import '../../core/notifications/overdue_notification_service.dart';
+import '../../core/ui/formatters/id_formatter.dart';
 import '../../data/datasources/database_helper.dart';
 import '../../data/repositories/item_rate_repository_impl.dart';
 import '../../data/repositories/record_repository_impl.dart';
@@ -17,13 +20,32 @@ import '../../domain/domain.dart';
 /// AppDatabase alias for background isolate (§4.3 [FIX-BG-DB-1]).
 typedef AppDatabase = DatabaseHelper;
 
-/// Opens dedicated background database connection (§4.3 [FIX-BG-DB-1]).
+/// Opens dedicated background database connection (§4.3 [FIX-BG-DB-1] / [FIX-DB-CONN-1]).
 Future<DatabaseHelper> openBackgroundConnection() => DatabaseHelper.openIsolated();
+
+/// Open connection helper matching spec naming [FIX-BG-DB-1] / [FIX-DB-CONN-1].
+Future<DatabaseHelper> openAppConnection({bool inBackgroundIsolate = false}) =>
+    DatabaseHelper.openIsolated();
+
+const MethodChannel _exactAlarmChannel = MethodChannel('com.moneylending/exact_alarm');
+
+/// Small platform-channel helper checking whether exact alarms can be scheduled on Android 12+ (API 31+).
+Future<bool> canScheduleExactAlarms() async {
+  if (!Platform.isAndroid) return true;
+  try {
+    final canExact = await _exactAlarmChannel.invokeMethod<bool>('canScheduleExactAlarms');
+    return canExact ?? true;
+  } catch (_) {
+    return true;
+  }
+}
 
 /// Standard Android initialization settings (§8).
 const androidInitSettings = InitializationSettings(
   android: AndroidInitializationSettings('@mipmap/ic_launcher'),
 );
+
+const int _dailyAlarmId = 1001;
 
 /// Channel for 30-day overdue & live collateral breach notifications (§8).
 const overdueChannel = AndroidNotificationChannel(
@@ -46,7 +68,7 @@ const overshootChannel = AndroidNotificationChannel(
 /// Mandated by Section 8:
 /// - @pragma('vm:entry-point') keeps the callback in release builds (prevents tree-shaking).
 /// - DartPluginRegistrant.ensureInitialized() registers plugins in background isolate.
-/// - Opens its own connection to moneylending.db via DatabaseHelper.openIsolated().
+/// - Opens its own connection to moneylending.db via DatabaseHelper.openIsolated() / openAppConnection().
 /// - Reads clock ONCE via DateTime.now().dateOnly ([FIX-CLOCK-1]).
 /// - Reschedules tomorrow's 10:00 AM alarm in a finally block so one failed run cannot silently end the schedule.
 @pragma('vm:entry-point')
@@ -59,6 +81,10 @@ Future<void> dailyOverdueCallback() async {
     db = await openBackgroundConnection(); // [FIX-BG-DB-1]: own connection
     final plugin = FlutterLocalNotificationsPlugin();
     await plugin.initialize(settings: androidInitSettings); // same channels as main()
+
+    final androidImpl = plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidImpl?.createNotificationChannel(overdueChannel);
+    await androidImpl?.createNotificationChannel(overshootChannel);
 
     final records = await RecordRepositoryImpl(db).getAllActiveRecordsOnce();
     final rates = await ItemRateRepositoryImpl(db).getCurrentRatesOnce();
@@ -148,7 +174,8 @@ Future<void> runDailyChecks({
   if (overdueCandidatesToNotify.isNotEmpty) {
     final distinctCustomers = <String, String>{};
     for (final item in overdueCandidatesToNotify) {
-      distinctCustomers[item.record.customerId] = item.record.customerName ?? 'Customer';
+      final cId = item.record.customerId ?? item.record.lenderId ?? 'party';
+      distinctCustomers[cId] = item.record.customerName ?? 'Party';
     }
 
     final isGrouped = OverdueNotificationService.shouldGroupNotifications(distinctCustomers.length);
@@ -167,23 +194,26 @@ Future<void> runDailyChecks({
         title: '${distinctCustomers.length} Loans Overdue',
         body: 'Tap to review all overdue customer accounts.',
         notificationDetails: notificationDetails,
-        payload: 'overdue',
+        payload: const OverdueReportRoute().path,
       );
     } else {
       for (final entry in distinctCustomers.entries) {
         final customerId = entry.key;
         final customerName = entry.value;
 
-        final customerRecords = overdueCandidatesToNotify.where((o) => o.record.customerId == customerId).toList();
-        final primary = customerRecords.first;
+        final customerRecords = overdueCandidatesToNotify
+            .where((o) => (o.record.customerId ?? o.record.lenderId) == customerId)
+            .toList();
+        final primary = customerRecords.isNotEmpty ? customerRecords.first : overdueCandidatesToNotify.first;
 
         String reasonText = '';
+        final txnDisplay = AppIdFormatter.formatTransactionId(primary.record.transactionId);
         if (primary.reasons.contains(OverdueReason.noActivity)) {
-          reasonText = '${primary.record.transactionId} inactive for ${primary.daysSinceActivity} days';
+          reasonText = '$txnDisplay inactive for ${primary.daysSinceActivity} days';
         } else if (primary.reasons.contains(OverdueReason.collateralBreachedNow)) {
-          reasonText = '${primary.record.transactionId} collateral value dropped below balance';
+          reasonText = '$txnDisplay collateral value dropped below balance';
         } else if (primary.reasons.contains(OverdueReason.collateralProjected2Months)) {
-          reasonText = '${primary.record.transactionId} collateral projected breach in 2 months';
+          reasonText = '$txnDisplay collateral projected breach in 2 months';
         }
 
         const androidDetails = AndroidNotificationDetails(
@@ -199,7 +229,7 @@ Future<void> runDailyChecks({
           title: 'Overdue Loan: $customerName',
           body: reasonText,
           notificationDetails: notificationDetails,
-          payload: 'overdue',
+          payload: const OverdueReportRoute().path,
         );
       }
     }
@@ -242,7 +272,7 @@ Future<void> runDailyChecks({
     if (overshootCandidates.isNotEmpty) {
       final customerRisks = <String, List<RecordRisk>>{};
       for (final r in overshootCandidates) {
-        customerRisks.putIfAbsent(r.record.customerId, () => []).add(r);
+        customerRisks.putIfAbsent(r.record.customerId ?? '', () => []).add(r);
       }
 
       for (final entry in customerRisks.entries) {
@@ -260,8 +290,9 @@ Future<void> runDailyChecks({
         const notificationDetails = NotificationDetails(android: androidDetails);
 
         final String body;
+        final txnDisplay = AppIdFormatter.formatTransactionId(primary.record.transactionId);
         if (custRisks.length == 1) {
-          body = '${primary.record.transactionId} projected balance will exceed collateral in 2 months';
+          body = '$txnDisplay projected balance will exceed collateral in 2 months';
         } else {
           body = '${custRisks.length} loans projected to exceed collateral in 2 months';
         }
@@ -271,7 +302,7 @@ Future<void> runDailyChecks({
           title: 'Collection Warning: $customerName',
           body: body,
           notificationDetails: notificationDetails,
-          payload: 'collection_alerts',
+          payload: const DashboardAlertsRoute().path,
         );
       }
 
@@ -284,19 +315,24 @@ Future<void> runDailyChecks({
   }
 }
 
-/// Schedules or reschedules the next 10:00 AM alarm (§8, [FIX-ALARM-CALLBACK-1]).
-Future<void> scheduleNextTenAm([DateTime? now]) async {
+/// Next 10:00 AM local time after now. Exact when canScheduleExactAlarms() is true,
+/// otherwise the SAME inexact path on every call - never mix the two (section 8).
+Future<void> scheduleNextTenAm([DateTime? nowOverride]) async {
   if (!Platform.isAndroid) return;
-  final scheduler = OverdueNotificationService();
-  final target10Am = OverdueNotificationService.calculateNext10Am(now);
-  final canExact = await scheduler.canScheduleExactAlarms();
+  final now = nowOverride ?? DateTime.now();
+  var at = DateTime(now.year, now.month, now.day, 10);
+  if (!at.isAfter(now)) {
+    at = DateTime(now.year, now.month, now.day + 1, 10); // wall-clock 10:00, DST-safe
+  }
+  final canExact = await canScheduleExactAlarms();
 
   await AndroidAlarmManager.oneShotAt(
-    target10Am,
-    OverdueNotificationService.alarmId,
+    at,
+    _dailyAlarmId,
     dailyOverdueCallback,
     exact: canExact,
     wakeup: true,
+    allowWhileIdle: true,
     rescheduleOnReboot: true,
   );
 }

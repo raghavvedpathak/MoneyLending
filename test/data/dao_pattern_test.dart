@@ -10,6 +10,7 @@ void main() {
   late RecordDao recordDao;
   late PaymentDao paymentDao;
   late SettingsDao settingsDao;
+  late LenderDao lenderDao;
   late DatabaseHelper dbHelper;
 
   setUpAll(() async {
@@ -39,6 +40,7 @@ void main() {
               transactionId TEXT NOT NULL UNIQUE,
               type TEXT NOT NULL,
               customerId TEXT NOT NULL,
+              lenderId TEXT,
               customerName TEXT,
               startDate TEXT NOT NULL,
               endDate TEXT,
@@ -101,12 +103,26 @@ void main() {
               retiredAt TEXT NOT NULL
             )
           ''');
+          await db.execute('''
+            CREATE TABLE lenders (
+              id TEXT PRIMARY KEY,
+              displayId TEXT NOT NULL UNIQUE,
+              lenderType TEXT NOT NULL,
+              name TEXT NOT NULL,
+              phone TEXT,
+              institutionDetails TEXT,
+              notes TEXT,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            )
+          ''');
         },
       ),
     );
     recordDao = RecordDao(db);
     paymentDao = PaymentDao(db);
     settingsDao = SettingsDao(db);
+    lenderDao = LenderDao(db);
     dbHelper = DatabaseHelper.forTesting(db);
   });
 
@@ -776,6 +792,101 @@ void main() {
       final fetched = await recordDao.getById('rec-upsert-safe');
       expect(fetched!.principalAmount, 60000.0);
       expect(fetched.interestRate, 2.5);
+    });
+
+    test('RecordDao.watchByLender and getByLender filter and sort correctly (§4.4)', () async {
+      const rec1 = RecordEntity(
+        id: 'rec-lend-1',
+        transactionId: 'TXN-LEND-01',
+        type: 'TAKEN',
+        customerId: 'c-none',
+        lenderId: 'lend-1',
+        startDate: '2026-05-01T10:00:00',
+        principalAmount: 150000.0,
+        interestRate: 1.5,
+        status: 'ACTIVE',
+      );
+      const rec2 = RecordEntity(
+        id: 'rec-lend-2',
+        transactionId: 'TXN-LEND-02',
+        type: 'TAKEN',
+        customerId: 'c-none',
+        lenderId: 'lend-1',
+        startDate: '2026-05-15T12:00:00',
+        principalAmount: 200000.0,
+        interestRate: 1.25,
+        status: 'ACTIVE',
+      );
+      const otherRec = RecordEntity(
+        id: 'rec-lend-other',
+        transactionId: 'TXN-LEND-03',
+        type: 'TAKEN',
+        customerId: 'c-none',
+        lenderId: 'lend-other',
+        startDate: '2026-05-10T11:00:00',
+        principalAmount: 50000.0,
+        interestRate: 2.0,
+        status: 'ACTIVE',
+      );
+
+      await recordDao.insert(rec1);
+      await recordDao.insert(rec2);
+      await recordDao.insert(otherRec);
+
+      // getByLender returns only records for lend-1 ordered by startDate DESC
+      final list = await recordDao.getByLender('lend-1');
+      expect(list.length, 2);
+      expect(list[0].id, 'rec-lend-2'); // newer first
+      expect(list[1].id, 'rec-lend-1'); // older second
+
+      // watchByLender streams correct records
+      final streamed = await recordDao.watchByLender('lend-1').first;
+      expect(streamed.length, 2);
+      expect(streamed[0].id, 'rec-lend-2');
+    });
+
+    test('LenderDao CRUD and watch streams (§4.4 & [FIX-LENDER-CODEPATH-1])', () async {
+      const lender = LenderEntity(
+        id: 'lend-u1',
+        displayId: 'LEND26-27-01',
+        lenderType: 'individual',
+        name: 'Sharma Finance',
+        phone: '9876543210',
+        createdAt: '2026-05-01T00:00:00',
+        updatedAt: '2026-05-01T00:00:00',
+      );
+
+      // 1. Insert
+      await lenderDao.insertLender(lender);
+
+      // 2. Query by ID
+      final fetched = await lenderDao.getById('lend-u1');
+      expect(fetched, isNotNull);
+      expect(fetched!.name, 'Sharma Finance');
+      expect(fetched.displayId, 'LEND26-27-01');
+
+      // 3. Watch streams
+      final allLenders = await lenderDao.watchAllLenders().first;
+      expect(allLenders.length, 1);
+      expect(allLenders.first.id, 'lend-u1');
+
+      final singleLender = await lenderDao.watchLenderById('lend-u1').first;
+      expect(singleLender, isNotNull);
+      expect(singleLender!.name, 'Sharma Finance');
+
+      // 4. Update
+      final updated = lender.copyWith(name: 'Sharma Microfinance', phone: '9998887776');
+      final updateSuccess = await lenderDao.updateLender(updated);
+      expect(updateSuccess, isTrue);
+
+      final reFetched = await lenderDao.getById('lend-u1');
+      expect(reFetched!.name, 'Sharma Microfinance');
+      expect(reFetched.phone, '9998887776');
+
+      // 5. Delete by ID (WHERE-clause delete)
+      final deletedCount = await lenderDao.deleteById('lend-u1');
+      expect(deletedCount, 1);
+      expect(await lenderDao.getById('lend-u1'), isNull);
     });
   });
 }

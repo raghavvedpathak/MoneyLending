@@ -32,6 +32,30 @@ class Customers extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// lenders table (§4.1 & [FIX-LENDER-CODEPATH-1])
+/// id (UUID TEXT), displayId (TEXT NOT NULL UNIQUE, prefix LEND)
+/// lenderType (individual / institution)
+/// createdAt stored as ISO date string YYYY-MM-DD (time truncated to midnight).
+/// updatedAt stored as full ISO datetime string YYYY-MM-DDTHH:MM:SS.
+@DataClassName('LenderEntityData')
+class Lenders extends Table {
+  TextColumn get id => text()();
+  TextColumn get displayId => text().unique()();
+  TextColumn get lenderType => text()();
+  TextColumn get name => text()();
+  TextColumn get phone => text().nullable()();
+  TextColumn get institutionDetails => text().nullable()();
+  TextColumn get notes => text().nullable()();
+  TextColumn get createdAt => text().map(const DateOnlyConverter())();
+  TextColumn get updatedAt => text().map(const LocalDateTimeConverter())();
+
+  @override
+  String get tableName => 'lenders';
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 // DO NOT CHANGE TO INTEGER — switching to paise storage requires a Drift schema migration; money is a REAL rounded to 2 decimals with roundMoney(); see §4.2 and Addendum J.1.
 /// records table (§4.1)
 /// type (TEXT enum, stored as lowercase enum .name given/taken [FIX-ENUM-CASE-1])
@@ -46,7 +70,8 @@ class Records extends Table {
   TextColumn get id => text()();
   TextColumn get transactionId => text().unique()();
   TextColumn get type => text()();
-  TextColumn get customerId => text().references(Customers, #id, onDelete: KeyAction.cascade)();
+  TextColumn get customerId => text().references(Customers, #id, onDelete: KeyAction.cascade).nullable()();
+  TextColumn get lenderId => text().references(Lenders, #id, onDelete: KeyAction.cascade).nullable()();
   TextColumn get customerName => text().nullable()();
   TextColumn get startDate => text().map(const LocalDateTimeConverter())();
   TextColumn get endDate => text().map(const DateOnlyConverter()).nullable()();

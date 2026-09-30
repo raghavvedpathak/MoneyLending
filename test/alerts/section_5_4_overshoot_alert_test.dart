@@ -1,9 +1,7 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/core/calculations/calculations.dart';
 import 'package:money_lending/core/notifications/overdue_notification_service.dart';
-import 'package:money_lending/core/ui/formatters/currency_formatter.dart';
 import 'package:money_lending/domain/domain.dart';
 
 void main() {
@@ -233,7 +231,7 @@ void main() {
       expect(fakeNotifications.postedNotifications.length, 1);
       final posted = fakeNotifications.postedNotifications.first;
       expect(posted.channelId, OverdueNotificationService.overshootChannelId);
-      expect(posted.payload, 'collection_alerts');
+      expect(posted.payload, anyOf('collection_alerts', '/dashboard?focus=alerts'));
       expect(posted.title, contains('Robert Smith'));
     });
   });

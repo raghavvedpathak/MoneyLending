@@ -204,6 +204,52 @@ void main() {
           ),
         );
       });
+
+      test('Identifies offending duplicate lender displayId', () {
+        const wrapper = BackupWrapper(
+          version: '1.4',
+          customers: [],
+          lenders: [
+            BackupLender(id: 'l1', displayId: 'LEND26-27-01', name: 'Lender 1', createdAt: '2026-04-01', updatedAt: '2026-04-01T10:00:00'),
+            BackupLender(id: 'l2', displayId: 'LEND26-27-01', name: 'Lender 2', createdAt: '2026-04-02', updatedAt: '2026-04-02T10:00:00'),
+          ],
+          records: [],
+        );
+
+        expect(
+          () => BackupService.validateBackup(wrapper),
+          throwsA(
+            isA<BackupValidationException>().having(
+              (e) => e.offendingId,
+              'offendingId',
+              equals('LEND26-27-01'),
+            ),
+          ),
+        );
+      });
+
+      test('Identifies offending duplicate lender primary key ID', () {
+        const wrapper = BackupWrapper(
+          version: '1.4',
+          customers: [],
+          lenders: [
+            BackupLender(id: 'dup-lender-id', displayId: 'LEND26-27-01', name: 'Lender 1', createdAt: '2026-04-01', updatedAt: '2026-04-01T10:00:00'),
+            BackupLender(id: 'dup-lender-id', displayId: 'LEND26-27-02', name: 'Lender 2', createdAt: '2026-04-02', updatedAt: '2026-04-02T10:00:00'),
+          ],
+          records: [],
+        );
+
+        expect(
+          () => BackupService.validateBackup(wrapper),
+          throwsA(
+            isA<BackupValidationException>().having(
+              (e) => e.offendingId,
+              'offendingId',
+              equals('dup-lender-id'),
+            ),
+          ),
+        );
+      });
     });
 
     // -------------------------------------------------------------------------

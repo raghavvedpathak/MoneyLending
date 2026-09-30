@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../data/repositories/customer_repository_impl.dart';
 import '../../../../data/repositories/item_rate_repository_impl.dart';
+import '../../../../data/repositories/lender_repository_impl.dart';
 import '../../../../data/repositories/record_repository_impl.dart';
 import '../../../../data/repositories/settings_repository_impl.dart';
 import '../../domain/domain.dart';
@@ -14,25 +15,36 @@ import 'database_provider.dart';
 /// - An auto-disposing provider would re-create repository instances and their Lock mutexes,
 ///   breaking concurrency protection.
 
-final customerRepositoryProvider = Provider<CustomerRepository>((ref) {
-  final db = ref.watch(appDatabaseProvider);
-  return CustomerRepositoryImpl(db);
-});
+/// Functional accessors matching @Riverpod(keepAlive: true) spec signatures (§4.3):
+CustomerRepository customerRepository(Ref ref) =>
+    CustomerRepositoryImpl(ref.watch(appDatabaseProvider));
 
-final recordRepositoryProvider = Provider<RecordRepository>((ref) {
-  final db = ref.watch(appDatabaseProvider);
-  return RecordRepositoryImpl(db);
-});
+LenderRepository lenderRepository(Ref ref) =>
+    LenderRepositoryImpl(ref.watch(appDatabaseProvider));
 
-final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
-  final db = ref.watch(appDatabaseProvider);
-  return SettingsRepositoryImpl(db);
-});
+RecordRepository recordRepository(Ref ref) =>
+    RecordRepositoryImpl(ref.watch(appDatabaseProvider));
 
-final itemRateRepositoryProvider = Provider<ItemRateRepository>((ref) {
-  final db = ref.watch(appDatabaseProvider);
-  return ItemRateRepositoryImpl(db);
-});
+SettingsRepository settingsRepository(Ref ref) =>
+    SettingsRepositoryImpl(ref.watch(appDatabaseProvider));
+
+ItemRateRepository itemRateRepository(Ref ref) =>
+    ItemRateRepositoryImpl(ref.watch(appDatabaseProvider));
+
+final customerRepositoryProvider =
+    Provider<CustomerRepository>((ref) => customerRepository(ref));
+
+final lenderRepositoryProvider =
+    Provider<LenderRepository>((ref) => lenderRepository(ref));
+
+final recordRepositoryProvider =
+    Provider<RecordRepository>((ref) => recordRepository(ref));
+
+final settingsRepositoryProvider =
+    Provider<SettingsRepository>((ref) => settingsRepository(ref));
+
+final itemRateRepositoryProvider =
+    Provider<ItemRateRepository>((ref) => itemRateRepository(ref));
 
 /// Reactive StreamProvider exposing settings [FIX-ARCH-SETTINGS-1].
 /// Never null — emits default settings on first access and updates reactively.

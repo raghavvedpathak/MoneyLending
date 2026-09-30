@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_lending/core/di/injection.dart';
+import 'package:money_lending/core/ui/formatters/id_formatter.dart';
 import 'package:money_lending/domain/domain.dart';
 import 'package:money_lending/features/reports/reports.dart';
 import '../test_db_helper.dart';
@@ -60,8 +61,9 @@ void main() {
       expect(find.text('Grand Total Outstanding Due'), findsOneWidget);
       expect(find.text('Portfolio Health'), findsOneWidget);
 
-      // Overview FAB should be visible ('Export All PDF')
-      expect(find.text('Export All PDF'), findsOneWidget);
+      // Overview FAB must be hidden per §6.1 (shows combined Given/Taken totals, no single export)
+      expect(find.text('Export All PDF'), findsNothing);
+      expect(find.text('Export Statement PDF'), findsNothing);
 
       // Drain any pending timers
       await tester.pump(const Duration(seconds: 11));
@@ -100,7 +102,7 @@ void main() {
 
         await tester.pumpWidget(
           const MaterialApp(
-            home: ReportsScreen(initialSubTab: 2), // Index 2: Monthly
+            home: ReportsScreen(initialSubTab: 3), // Index 3: Monthly
           ),
         );
         await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -231,7 +233,7 @@ void main() {
 
         await tester.pumpWidget(
           const MaterialApp(
-            home: ReportsScreen(initialSubTab: 3), // Index 3: Overdue
+            home: ReportsScreen(initialSubTab: 4), // Index 4: Overdue
           ),
         );
         await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -246,6 +248,93 @@ void main() {
 
       // FAB is hidden on Overdue tab
       expect(find.text('Export All PDF'), findsNothing);
+      expect(find.text('Export Statement PDF'), findsNothing);
+
+      // Drain any pending timers
+      await tester.pump(const Duration(seconds: 11));
+    });
+
+    testWidgets('Lenders tab (index 2) renders lenders and supports tap drill-down and statement FAB visibility (§6.1)', (tester) async {
+      tester.view.physicalSize = const Size(1080, 1920);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final lenderRepo = sl<LenderRepository>();
+      late Lender lender;
+
+      await tester.runAsync(() async {
+        lender = await lenderRepo.addLender(
+          lenderType: LenderType.institution,
+          name: 'Apex Finance Corp',
+          phone: '9988776655',
+          institutionDetails: 'NBFC Lic 1234',
+          createdAt: DateTime(2026, 1, 1),
+        );
+
+        await recordRepo.insertRecord(LedgerRecord(
+          id: 'r-rep-l-1',
+          transactionId: 'TRAN092698',
+          type: RecordType.TAKEN,
+          lenderId: lender.id,
+          principalAmount: 40000,
+          interestRate: 1.5,
+          startDate: DateTime(2026, 2, 1),
+          status: RecordStatus.ACTIVE,
+        ));
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: ReportsScreen(initialSubTab: 2), // Index 2: Lenders
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      });
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 1. Initial State: Lenders list
+      expect(find.text('Apex Finance Corp'), findsOneWidget);
+      expect(find.text('${AppIdFormatter.formatLenderId(lender.displayId)} • ${lender.lenderType.displayName}'), findsOneWidget);
+      expect(find.text('1 Active'), findsWidgets);
+      expect(find.text('Principal Taken'), findsWidgets);
+      expect(find.text('Interest Payable'), findsWidgets);
+      expect(find.text('Total Due'), findsWidgets);
+
+      // FAB is hidden on Lenders tab when selectedLender is null (§6.1)
+      expect(find.text('Export Statement PDF'), findsNothing);
+
+      // 2. Tap lender card to select lender & open navigation drill-down
+      await tester.tap(find.text('Apex Finance Corp'));
+      await tester.runAsync(() async {
+        await tester.pump();
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Drill-down view is displayed
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+      expect(find.text('Record History (Loans Taken)'), findsOneWidget);
+      expect(find.textContaining('092698'), findsOneWidget);
+
+      // FAB becomes visible for statement export
+      expect(find.text('Export Statement PDF'), findsOneWidget);
+
+      // 3. Tap back button to return to all lenders list
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.runAsync(() async {
+        await tester.pump();
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // Back to lender list
+      expect(find.text('Apex Finance Corp'), findsOneWidget);
+      expect(find.text('Principal Taken'), findsWidgets);
+      // FAB is hidden again
       expect(find.text('Export Statement PDF'), findsNothing);
 
       // Drain any pending timers

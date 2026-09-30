@@ -74,6 +74,7 @@ class CalculationEngine {
       mb.getMonthsBetween(start, end);
 
   /// Simple interest calculation for period: principal * rate * months / 100 (§5.1)
+  /// [FIX-MONEY-1]: the interest of one period is ALWAYS a 2-decimal amount.
   static double calculateInterestForPeriod({
     required double principal,
     required double rate,
@@ -81,7 +82,7 @@ class CalculationEngine {
     required DateTime end,
   }) {
     final months = getMonthsBetween(start, end);
-    return (principal * rate * months) / 100.0;
+    return roundMoney((principal * rate * months) / 100.0);
   }
 
   /// Splits a payment amount into interest and principal portions using interest-first rule (§5.2.4).
@@ -296,20 +297,19 @@ class CalculationEngine {
     }
 
     return DashboardStats(
-      totalPrincipalGiven: totalPrincipalGiven,
-      totalInterestAccruedGiven: totalInterestAccruedGiven,
-      totalDueGiven: totalDueGiven,
-      totalPrincipalTaken: totalPrincipalTaken,
-      totalInterestAccruedTaken: totalInterestAccruedTaken,
-      totalDueTaken: totalDueTaken,
+      totalPrincipalGiven: roundMoney(totalPrincipalGiven),
+      totalInterestAccruedGiven: roundMoney(totalInterestAccruedGiven),
+      totalDueGiven: roundMoney(totalDueGiven),
+      totalPrincipalTaken: roundMoney(totalPrincipalTaken),
+      totalInterestAccruedTaken: roundMoney(totalInterestAccruedTaken),
+      totalDueTaken: roundMoney(totalDueTaken),
     );
   }
 
-  /// Per-customer rollup for the Reports screen Overview tab (§5.1).
-  /// Every sum is re-rounded with sumMoney().
-  static List<CustomerReport> getCustomerReport(
-    List<Customer> customers,
-    List<LedgerRecord> records, {
+  /// Per-borrower rollup, GIVEN records only; every sum is re-rounded with sumMoney() (§5.1).
+  static List<BorrowerReport> getBorrowerReports({
+    required List<Customer> customers,
+    required List<LedgerRecord> records,
     required DateTime today,
   }) {
     final todayDate = today.dateOnly;
@@ -319,19 +319,71 @@ class CalculationEngine {
           .where((r) => r.customerId == customer.id && r.isActive && r.isGiven)
           .toList();
 
-      final totalPrincipal = sumMoney(customerRecords.map((r) => r.principalAmount));
+      final totalPrincipalOut = sumMoney(customerRecords.map((r) => r.principalAmount));
       final financials = customerRecords.map((r) => calculateRecordFinancials(r, todayDate)).toList();
       final totalInterest = sumMoney(financials.map((f) => f.totalInterest));
       final totalDue = sumMoney(financials.map((f) => f.totalDue));
 
-      return CustomerReport(
+      return BorrowerReport(
         customer: customer,
         activeRecordCount: customerRecords.length,
-        totalPrincipal: totalPrincipal,
+        totalPrincipalOut: totalPrincipalOut,
         totalInterestAccrued: totalInterest,
         totalDue: totalDue,
       );
     }).toList();
+  }
+
+  /// Per-lender rollup, TAKEN records only; every sum is re-rounded with sumMoney() (§5.1).
+  /// Mirrors getBorrowerReports() on the other side of the split.
+  static List<LenderReport> getLenderReports({
+    required List<Lender> lenders,
+    required List<LedgerRecord> records,
+    required DateTime today,
+  }) {
+    final todayDate = today.dateOnly;
+
+    return lenders.map((lender) {
+      final lenderRecords = records
+          .where((r) => r.lenderId == lender.id && r.isActive && r.isTaken)
+          .toList();
+
+      final totalPrincipalTaken = sumMoney(lenderRecords.map((r) => r.principalAmount));
+      final financials = lenderRecords.map((r) => calculateRecordFinancials(r, todayDate)).toList();
+      final totalInterest = sumMoney(financials.map((f) => f.totalInterest));
+      final totalDue = sumMoney(financials.map((f) => f.totalDue));
+
+      return LenderReport(
+        lender: lender,
+        activeRecordCount: lenderRecords.length,
+        totalPrincipalTaken: totalPrincipalTaken,
+        totalInterestPayable: totalInterest,
+        totalDueToLender: totalDue,
+      );
+    }).toList();
+  }
+
+  /// Per-customer rollup for the Reports screen Overview tab (§5.1).
+  /// Every sum is re-rounded with sumMoney().
+  static List<CustomerReport> getCustomerReport(
+    List<Customer> customers,
+    List<LedgerRecord> records, {
+    required DateTime today,
+  }) {
+    final borrowerReports = getBorrowerReports(
+      customers: customers,
+      records: records,
+      today: today,
+    );
+    return borrowerReports
+        .map((b) => CustomerReport(
+              customer: b.customer,
+              activeRecordCount: b.activeRecordCount,
+              totalPrincipal: b.totalPrincipalOut,
+              totalInterestAccrued: b.totalInterestAccrued,
+              totalDue: b.totalDue,
+            ))
+        .toList();
   }
 
   /// CASH-BASIS: counts only interest actually PAID (payment.interestPaid > 0), not accrued (§5.1).
@@ -357,7 +409,7 @@ class CalculationEngine {
       final month = int.parse(parts[1]);
       return MonthlyEarning(
         month: DateTime(year, month, 1),
-        interestReceived: earningsMap[key] ?? 0.0,
+        interestReceived: roundMoney(earningsMap[key] ?? 0.0),
       );
     }).toList();
   }
@@ -536,7 +588,7 @@ class CalculationEngine {
     Map<String, double>? totalPaidMap,
     DateTime? today,
   ]) {
-    final now = today ?? DateTime.now();
+    final now = (today ?? DateTime.now()).dateOnly;
     return coll_alerts.computeCollectionAlerts(
       records: records,
       rates: rates,
@@ -566,7 +618,7 @@ class CalculationEngine {
     Map<String, double> totalPaidMap = const {},
     DateTime? today,
   ]) {
-    final now = today ?? DateTime.now();
+    final now = (today ?? DateTime.now()).dateOnly;
     final risks = coll_alerts.computeRecordRisks(
       records: records,
       rates: rates,
@@ -727,6 +779,28 @@ double calculateNetProfit(Financials givenFinancials, Financials takenFinancials
     CalculationEngine.calculateNetProfit(givenFinancials, takenFinancials);
 DashboardStats getDashboard(List<LedgerRecord> records, {required DateTime today}) =>
     CalculationEngine.getDashboard(records, today: today);
+List<BorrowerReport> getBorrowerReports({
+  required List<Customer> customers,
+  required List<LedgerRecord> records,
+  required DateTime today,
+}) =>
+    CalculationEngine.getBorrowerReports(
+      customers: customers,
+      records: records,
+      today: today,
+    );
+
+List<LenderReport> getLenderReports({
+  required List<Lender> lenders,
+  required List<LedgerRecord> records,
+  required DateTime today,
+}) =>
+    CalculationEngine.getLenderReports(
+      lenders: lenders,
+      records: records,
+      today: today,
+    );
+
 List<CustomerReport> getCustomerReport(
   List<Customer> customers,
   List<LedgerRecord> records, {
@@ -769,6 +843,7 @@ List<CollectionAlertCardData> computeCollectionAlertCards(
   DateTime? today,
 ]) =>
     CalculationEngine.computeCollectionAlertCards(records, rates, totalPaidMap, today);
+
 List<Payment> reallocatePayments(LedgerRecord record) => CalculationEngine.reallocatePayments(record);
 (bool isValid, String? error) checkPaymentInsert({
   required LedgerRecord record,

@@ -1,7 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:money_lending/core/calculations/calculations.dart';
 import 'package:money_lending/core/navigation/app_router.dart';
 import 'package:money_lending/core/navigation/app_routes.dart';
 import 'package:money_lending/data/datasources/database_helper.dart';
@@ -9,7 +7,6 @@ import 'package:money_lending/data/repositories/item_rate_repository_impl.dart';
 import 'package:money_lending/data/repositories/record_repository_impl.dart';
 import 'package:money_lending/domain/domain.dart';
 import 'package:money_lending/features/dashboard/dashboard.dart';
-import 'package:money_lending/features/dashboard/widgets/rate_management_card.dart';
 import 'package:money_lending/features/dashboard/widgets/stale_rate_banner.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

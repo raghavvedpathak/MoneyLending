@@ -54,6 +54,18 @@ void main() {
 
       const rec = RecordDetailRoute('TRAN001');
       expect(rec.path, '/record/TRAN001');
+
+      const lender = LenderDetailRoute('LEND001');
+      expect(lender.path, '/lender/LEND001');
+      expect(lender.resolve(), 'lender/LEND001');
+    });
+
+    test('Notification deep link routes match §2.4 [FIX-NAV-PUSH-1]', () {
+      const overdue = OverdueReportRoute();
+      expect(overdue.path, '/reports/overdue');
+
+      const alerts = DashboardAlertsRoute();
+      expect(alerts.path, '/dashboard?focus=alerts');
     });
   });
 }

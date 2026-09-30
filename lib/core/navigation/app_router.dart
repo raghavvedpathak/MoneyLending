@@ -6,6 +6,7 @@ import '../../features/customers/customers.dart';
 import '../../features/dashboard/dashboard.dart';
 import '../../features/entry/screens/add_entry_screen.dart';
 import '../../features/entry/screens/edit_transaction_screen.dart';
+import '../../features/lenders/lenders.dart';
 import '../../features/payments/screens/add_payment_screen.dart';
 import '../../features/reports/reports.dart';
 import '../../features/settings/settings.dart';
@@ -33,7 +34,9 @@ final GoRouter appRouter = GoRouter(
             GoRoute(
               path: '/dashboard',
               name: 'dashboard',
-              builder: (BuildContext context, GoRouterState state) => const DashboardScreen(),
+              builder: (BuildContext context, GoRouterState state) => DashboardScreen(
+                focusAlerts: state.uri.queryParameters['focus'] == 'alerts',
+              ),
             ),
           ],
         ),
@@ -75,7 +78,23 @@ final GoRouter appRouter = GoRouter(
       path: '/overdue',
       parentNavigatorKey: rootNavigatorKey,
       builder: (BuildContext context, GoRouterState state) =>
-          const ReportsScreen(initialSubTab: 3),
+          const ReportsScreen(initialSubTab: 4),
+    ),
+
+    // Notification deep link route for overdue report (§2.4 [FIX-NAV-PUSH-1])
+    GoRoute(
+      path: '/reports/overdue',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (BuildContext context, GoRouterState state) =>
+          const ReportsScreen(initialSubTab: 4),
+    ),
+
+    // Lenders peer entry point (§10.1)
+    GoRoute(
+      path: '/lenders',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (BuildContext context, GoRouterState state) =>
+          const LenderListScreen(),
     ),
 
     // Modal / Sub-routes
@@ -112,6 +131,15 @@ final GoRouter appRouter = GoRouter(
       builder: (BuildContext context, GoRouterState state) {
         final customerId = state.pathParameters['customerId'] ?? '';
         return CustomerDetailScreen(customerId: customerId);
+      },
+    ),
+
+    GoRoute(
+      path: '/lender/:lenderId',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (BuildContext context, GoRouterState state) {
+        final lenderId = state.pathParameters['lenderId'] ?? '';
+        return LenderDetailScreen(lenderId: lenderId);
       },
     ),
 

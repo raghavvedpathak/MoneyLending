@@ -195,6 +195,7 @@ class DashboardViewModel {
       _latestRecords!,
       _latestRates!,
       totalPaidMap,
+      today,
     );
 
     // 3. Derive Risk Summary header (§10.1)

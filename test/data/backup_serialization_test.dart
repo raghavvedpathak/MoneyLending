@@ -684,5 +684,363 @@ void main() {
         expect(restored.itemRates![1].ratePerUnit, equals(85.0));
       });
     });
+
+    // -------------------------------------------------------------------------
+    // 8. [FIX-LENDER-BACKUP-1] (v1.27) Lenders in Backup 1.4
+    // -------------------------------------------------------------------------
+    group('8. [FIX-LENDER-BACKUP-1] (v1.27) Lenders in Backup 1.4', () {
+      test('When lenders == null, splitCustomersIntoLenders runs and assigns LEND displayId', () {
+        final jsonOld = jsonEncode({
+          'version': '1.3',
+          'customers': [
+            {
+              'id': 'cust-borrower',
+              'displayId': 'CUST26-27-01',
+              'name': 'Borrower Bob',
+              'phone': '9876543210',
+              'createdAt': '2026-04-10T10:00:00',
+            },
+            {
+              'id': 'cust-lender',
+              'displayId': 'CUST26-27-02',
+              'name': 'Lender Larry',
+              'phone': '9123456780',
+              'createdAt': '2026-04-12T11:00:00',
+            },
+          ],
+          'records': [
+            {
+              'id': 'rec-1',
+              'transactionId': 'TRAN042601',
+              'type': 'GIVEN',
+              'status': 'ACTIVE',
+              'customerId': 'cust-borrower',
+              'startDate': '2026-04-10T10:00:00',
+              'principalAmount': 10000.0,
+              'interestRate': 2.0,
+            },
+            {
+              'id': 'rec-2',
+              'transactionId': 'TRAN042602',
+              'type': 'TAKEN',
+              'status': 'ACTIVE',
+              'customerId': 'cust-lender',
+              'startDate': '2026-04-12T11:00:00',
+              'principalAmount': 50000.0,
+              'interestRate': 1.5,
+            },
+          ],
+        });
+
+        final decoded = BackupSerializer.decode(jsonOld);
+        expect(decoded.lenders, isNotNull);
+        expect(decoded.lenders!.length, equals(1));
+
+        final lender = decoded.lenders!.first;
+        expect(lender.id, equals('cust-lender'));
+        expect(lender.name, equals('Lender Larry'));
+        expect(lender.phone, equals('9123456780'));
+        expect(lender.displayId, startsWith('LEND'));
+        expect(lender.lenderType, equals('individual'));
+
+        // Customer Larry was only on TAKEN records, so he is removed from customers
+        expect(decoded.customers.length, equals(1));
+        expect(decoded.customers.first.id, equals('cust-borrower'));
+
+        // TAKEN record has customerId cleared and lenderId populated
+        final takenRecord = decoded.records.firstWhere((r) => r.type == 'TAKEN');
+        expect(takenRecord.customerId, isNull);
+        expect(takenRecord.lenderId, equals('cust-lender'));
+
+        // GIVEN record has customerId intact and lenderId null
+        final givenRecord = decoded.records.firstWhere((r) => r.type == 'GIVEN');
+        expect(givenRecord.customerId, equals('cust-borrower'));
+        expect(givenRecord.lenderId, isNull);
+
+        // Validation passes
+        expect(() => BackupService.validateBackup(decoded), returnsNormally);
+      });
+
+      test('When customer has both GIVEN and TAKEN records, preserved in customers and added to lenders', () {
+        final jsonOld = jsonEncode({
+          'version': '1.3',
+          'customers': [
+            {
+              'id': 'cust-dual',
+              'displayId': 'CUST26-27-01',
+              'name': 'Dual Role Person',
+              'phone': '9876543210',
+              'createdAt': '2026-04-10T10:00:00',
+            },
+          ],
+          'records': [
+            {
+              'id': 'rec-g',
+              'transactionId': 'TRAN042601',
+              'type': 'GIVEN',
+              'status': 'ACTIVE',
+              'customerId': 'cust-dual',
+              'startDate': '2026-04-10T10:00:00',
+              'principalAmount': 10000.0,
+              'interestRate': 2.0,
+            },
+            {
+              'id': 'rec-t',
+              'transactionId': 'TRAN042602',
+              'type': 'TAKEN',
+              'status': 'ACTIVE',
+              'customerId': 'cust-dual',
+              'startDate': '2026-04-12T11:00:00',
+              'principalAmount': 50000.0,
+              'interestRate': 1.5,
+            },
+          ],
+        });
+
+        final decoded = BackupSerializer.decode(jsonOld);
+        expect(decoded.customers.length, equals(1));
+        expect(decoded.customers.first.id, equals('cust-dual'));
+        expect(decoded.lenders, isNotNull);
+        expect(decoded.lenders!.length, equals(1));
+        expect(decoded.lenders!.first.id, equals('cust-dual'));
+      });
+
+      test('When lenders is present (even empty []), no split runs and TAKEN with customerId is rejected', () {
+        final jsonWithLendersPresent = jsonEncode({
+          'version': '1.4',
+          'customers': [
+            {
+              'id': 'c-1',
+              'displayId': 'CUST26-27-01',
+              'name': 'Lender As Customer',
+              'phone': '9876543210',
+              'createdAt': '2026-04-10T10:00:00',
+            },
+          ],
+          'lenders': [], // Present but empty!
+          'records': [
+            {
+              'id': 'r-1',
+              'transactionId': 'TRAN092699',
+              'type': 'TAKEN',
+              'status': 'ACTIVE',
+              'customerId': 'c-1', // Invalid: TAKEN still carrying customerId
+              'startDate': '2026-04-10T10:00:00',
+              'principalAmount': 20000.0,
+              'interestRate': 1.5,
+            },
+          ],
+        });
+
+        final decoded = BackupSerializer.decode(jsonWithLendersPresent);
+        expect(
+          () => BackupService.validateBackup(decoded),
+          throwsA(
+            isA<BackupValidationException>().having(
+              (e) => e.message,
+              'message',
+              contains('Record "TRAN092699" of type TAKEN must have lenderId and cannot have customerId.'),
+            ),
+          ),
+        );
+      });
+
+      test('Validates record type invariants naming transactionId', () {
+        // 1. GIVEN record with both customerId and lenderId
+        const givenBoth = BackupWrapper(
+          version: '1.4',
+          customers: [BackupCustomer(id: 'c1', displayId: 'CUST26-27-01', name: 'A', createdAt: '2026-04-01T10:00:00')],
+          lenders: [BackupLender(id: 'l1', displayId: 'LEND26-27-01', name: 'B', createdAt: '2026-04-01', updatedAt: '2026-04-01T10:00:00')],
+          records: [
+            BackupRecord(
+              id: 'r1',
+              transactionId: 'TRAN092601',
+              type: 'GIVEN',
+              status: 'ACTIVE',
+              customerId: 'c1',
+              lenderId: 'l1', // Both!
+              startDate: '2026-09-01T10:00:00',
+              principalAmount: 1000,
+              interestRate: 2.0,
+            ),
+          ],
+        );
+        expect(
+          () => BackupService.validateBackup(givenBoth),
+          throwsA(isA<BackupValidationException>().having((e) => e.offendingId, 'offendingId', equals('TRAN092601'))),
+        );
+
+        // 2. GIVEN record with neither
+        const givenNeither = BackupWrapper(
+          version: '1.4',
+          customers: [],
+          lenders: [],
+          records: [
+            BackupRecord(
+              id: 'r2',
+              transactionId: 'TRAN092602',
+              type: 'GIVEN',
+              status: 'ACTIVE',
+              customerId: null,
+              lenderId: null, // Neither!
+              startDate: '2026-09-01T10:00:00',
+              principalAmount: 1000,
+              interestRate: 2.0,
+            ),
+          ],
+        );
+        expect(
+          () => BackupService.validateBackup(givenNeither),
+          throwsA(isA<BackupValidationException>().having((e) => e.offendingId, 'offendingId', equals('TRAN092602'))),
+        );
+
+        // 3. TAKEN record with neither
+        const takenNeither = BackupWrapper(
+          version: '1.4',
+          customers: [],
+          lenders: [],
+          records: [
+            BackupRecord(
+              id: 'r3',
+              transactionId: 'TRAN092603',
+              type: 'TAKEN',
+              status: 'ACTIVE',
+              customerId: null,
+              lenderId: null, // Neither!
+              startDate: '2026-09-01T10:00:00',
+              principalAmount: 1000,
+              interestRate: 2.0,
+            ),
+          ],
+        );
+        expect(
+          () => BackupService.validateBackup(takenNeither),
+          throwsA(isA<BackupValidationException>().having((e) => e.offendingId, 'offendingId', equals('TRAN092603'))),
+        );
+      });
+
+      test('Validates lenderType strictly rejecting unknown values', () {
+        const invalidLenderWrapper = BackupWrapper(
+          version: '1.4',
+          customers: [],
+          lenders: [
+            BackupLender(
+              id: 'l1',
+              displayId: 'LEND26-27-01',
+              lenderType: 'bank_corporation', // Invalid!
+              name: 'State Bank',
+              createdAt: '2026-04-01',
+              updatedAt: '2026-04-01T10:00:00',
+            ),
+          ],
+          records: [],
+        );
+
+        expect(
+          () => BackupService.validateBackup(invalidLenderWrapper),
+          throwsA(
+            isA<BackupValidationException>().having(
+              (e) => e.message,
+              'message',
+              contains('invalid lenderType: "bank_corporation"'),
+            ),
+          ),
+        );
+      });
+
+      test('Full round-trip preservation of lenders and type invariant records', () {
+        final domainLender = Lender(
+          id: 'lender-uuid-1',
+          displayId: 'LEND26-27-01',
+          lenderType: LenderType.institution,
+          name: 'HDFC Gold Loan',
+          phone: '1800200300',
+          institutionDetails: 'Branch Code 4022',
+          notes: 'Special rate 1.25%',
+          createdAt: DateTime(2026, 4, 1, 10, 0),
+          updatedAt: DateTime(2026, 4, 1, 10, 0),
+        );
+
+        final domainCustomer = Customer(
+          id: 'cust-uuid-1',
+          displayId: 'CUST26-27-01',
+          name: 'Rohit Sharma',
+          phone: '9988776655',
+          createdAt: DateTime(2026, 4, 1, 10, 0),
+        );
+
+        final domainGivenRecord = LedgerRecord(
+          id: 'rec-given-1',
+          transactionId: 'TRAN092601',
+          type: RecordType.given,
+          status: RecordStatus.active,
+          customerId: domainCustomer.id,
+          startDate: DateTime(2026, 9, 1, 10, 0),
+          principalAmount: 20000,
+          interestRate: 2.0,
+        );
+
+        final domainTakenRecord = LedgerRecord(
+          id: 'rec-taken-1',
+          transactionId: 'TRAN092602',
+          type: RecordType.taken,
+          status: RecordStatus.active,
+          lenderId: domainLender.id,
+          startDate: DateTime(2026, 9, 2, 11, 0),
+          principalAmount: 50000,
+          interestRate: 1.25,
+        );
+
+        // 1. fromDomain
+        final wrapper = BackupSerializer.fromDomain(
+          customers: [domainCustomer],
+          lenders: [domainLender],
+          records: [domainGivenRecord, domainTakenRecord],
+        );
+
+        expect(wrapper.lenders, isNotNull);
+        expect(wrapper.lenders!.length, equals(1));
+        expect(wrapper.lenders!.first.lenderType, equals('institution'));
+
+        // GIVEN record has customerId, lenderId null
+        final givenDto = wrapper.records.firstWhere((r) => r.type == 'GIVEN');
+        expect(givenDto.customerId, equals(domainCustomer.id));
+        expect(givenDto.lenderId, isNull);
+
+        // TAKEN record has lenderId, customerId null
+        final takenDto = wrapper.records.firstWhere((r) => r.type == 'TAKEN');
+        expect(takenDto.customerId, isNull);
+        expect(takenDto.lenderId, equals(domainLender.id));
+
+        // 2. encode
+        final jsonString = BackupSerializer.encode(wrapper);
+        expect(jsonString, contains('"lenders":[{'));
+        expect(jsonString, contains('"institutionDetails":"Branch Code 4022"'));
+
+        // 3. decode
+        final decoded = BackupSerializer.decode(jsonString);
+
+        // 4. validate
+        expect(() => BackupService.validateBackup(decoded), returnsNormally);
+
+        // 5. toDomain
+        final restored = BackupSerializer.toDomain(decoded);
+        expect(restored.lenders.length, equals(1));
+        final restoredLender = restored.lenders.first;
+        expect(restoredLender.id, equals(domainLender.id));
+        expect(restoredLender.displayId, equals('LEND26-27-01'));
+        expect(restoredLender.lenderType, equals(LenderType.institution));
+        expect(restoredLender.institutionDetails, equals('Branch Code 4022'));
+        expect(restoredLender.notes, equals('Special rate 1.25%'));
+
+        final restoredGiven = restored.records.firstWhere((r) => r.type == RecordType.given);
+        expect(restoredGiven.customerId, equals(domainCustomer.id));
+        expect(restoredGiven.lenderId, isNull);
+
+        final restoredTaken = restored.records.firstWhere((r) => r.type == RecordType.taken);
+        expect(restoredTaken.lenderId, equals(domainLender.id));
+        expect(restoredTaken.customerId, isNull);
+      });
+    });
   });
 }

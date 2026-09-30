@@ -6,13 +6,14 @@ import 'package:path_provider/path_provider.dart';
 
 import 'drift_tables.dart';
 
-/// Opens a connection to moneylending.db with the required SQLite PRAGMAs (§4.3 [FIX-ARCH-DB-1] & [FIX-BG-DB-1]).
-///
-/// Mandated settings:
-/// - PRAGMA foreign_keys = ON;
-/// - PRAGMA journal_mode = WAL;
-/// - PRAGMA busy_timeout = 5000;
-QueryExecutor openConnection({String? customPath, bool inMemory = false}) {
+/// [FIX-DB-CONN-1] (v1.27) PUBLIC: shared by appDatabaseProvider (UI isolate) and by the alarm
+/// callback (section 8). inBackgroundIsolate: true opens the file directly on the calling isolate —
+/// the alarm callback already IS a background isolate and must not spawn a second one.
+QueryExecutor openAppConnection({
+  bool inBackgroundIsolate = false,
+  String? customPath,
+  bool inMemory = false,
+}) {
   if (inMemory) {
     return NativeDatabase.memory(
       setup: (rawDb) {
@@ -31,21 +32,34 @@ QueryExecutor openConnection({String? customPath, bool inMemory = false}) {
       final dbFolder = await getApplicationDocumentsDirectory();
       file = File(p.join(dbFolder.path, 'moneylending.db'));
     }
-    return NativeDatabase.createInBackground(
-      file,
-      setup: (rawDb) {
-        rawDb.execute('PRAGMA foreign_keys = ON;');
-        rawDb.execute('PRAGMA journal_mode = WAL;');
-        rawDb.execute('PRAGMA busy_timeout = 5000;');
-      },
-    );
+    void setup(dynamic rawDb) {
+      rawDb.execute('PRAGMA foreign_keys = ON;');
+      rawDb.execute('PRAGMA journal_mode = WAL;');
+      rawDb.execute('PRAGMA busy_timeout = 5000;');
+    }
+
+    return inBackgroundIsolate
+        ? NativeDatabase(file, setup: setup)
+        : NativeDatabase.createInBackground(file, setup: setup);
   });
 }
+
+/// Backwards-compatible alias for [openAppConnection] (§4.3 [FIX-ARCH-DB-1]).
+QueryExecutor openConnection({
+  String? customPath,
+  bool inMemory = false,
+  bool inBackgroundIsolate = false,
+}) =>
+    openAppConnection(
+      inBackgroundIsolate: inBackgroundIsolate,
+      customPath: customPath,
+      inMemory: inMemory,
+    );
 
 /// AppDatabase class schema definition (§4.3 [FIX-ARCH-DB-1]).
 ///
 /// Annotate with @DriftDatabase listing every table:
-/// @DriftDatabase(tables: [Customers, Records, LedgerItems, Payments, Settings, ItemRates, RetiredIds])
+/// @DriftDatabase(tables: [Customers, Lenders, Records, LedgerItems, Payments, Settings, ItemRates, RetiredIds])
 ///
 /// Schema version and migration rules:
 /// - Schema version starts at 1.
@@ -59,6 +73,7 @@ QueryExecutor openConnection({String? customPath, bool inMemory = false}) {
 ///      that is the Drift equivalent of Room's forbidden fallbackToDestructiveMigration().
 @DriftDatabase(tables: [
   Customers,
+  Lenders,
   Records,
   LedgerItems,
   Payments,
@@ -72,6 +87,7 @@ class AppDatabaseSchema {
 
   static const List<Type> allTables = [
     Customers,
+    Lenders,
     Records,
     LedgerItems,
     Payments,
