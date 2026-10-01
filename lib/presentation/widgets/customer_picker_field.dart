@@ -524,102 +524,106 @@ class _CustomerPickerModalContentState
                     return Container(
                       margin: const EdgeInsets.only(bottom: 6),
                       decoration: BoxDecoration(
-                        color: isSelected
-                            ? AppTheme.gold.withValues(alpha: 0.10)
-                            : AppTheme.cardDark,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
                           color: isSelected ? AppTheme.gold : AppTheme.borderDark,
                           width: isSelected ? 1.5 : 1,
                         ),
                       ),
-                      child: ListTile(
-                        dense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 4),
-                        leading: CircleAvatar(
-                          radius: 18,
-                          backgroundColor: isSelected
-                              ? AppTheme.gold
-                              : AppTheme.subCardDark,
-                          child: Text(
-                            _CustomerPickerFieldState._getInitials(c.name),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: isSelected ? Colors.white : AppTheme.textPrimary,
+                      child: Material(
+                        color: isSelected
+                            ? AppTheme.gold.withValues(alpha: 0.10)
+                            : AppTheme.cardDark,
+                        borderRadius: BorderRadius.circular(10),
+                        clipBehavior: Clip.antiAlias,
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4),
+                          leading: CircleAvatar(
+                            radius: 18,
+                            backgroundColor: isSelected
+                                ? AppTheme.gold
+                                : AppTheme.subCardDark,
+                            child: Text(
+                              _CustomerPickerFieldState._getInitials(c.name),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected ? Colors.white : AppTheme.textPrimary,
+                              ),
                             ),
                           ),
-                        ),
-                        title: Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                c.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: AppTheme.textPrimary,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 1.5),
-                              decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                              child: Text(
-                                AppIdFormatter.formatCustomerId(c.displayId),
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.gold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        subtitle: Row(
-                          children: [
-                            if (c.phone != null && c.phone!.isNotEmpty) ...[
-                              const Icon(Icons.phone_rounded,
-                                  size: 11, color: AppTheme.textMuted),
-                              const SizedBox(width: 3),
-                              Text(
-                                c.phone!,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: AppTheme.textSecondary,
-                                ),
-                              ),
-                            ],
-                            if (c.address != null && c.address!.isNotEmpty) ...[
-                              if (c.phone != null && c.phone!.isNotEmpty)
-                                const Text(' • ',
-                                    style: TextStyle(
-                                        fontSize: 11, color: AppTheme.textMuted)),
+                          title: Row(
+                            children: [
                               Flexible(
                                 child: Text(
-                                  c.address!,
+                                  c.name,
                                   style: const TextStyle(
-                                    fontSize: 11,
-                                    color: AppTheme.textMuted,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: AppTheme.textPrimary,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1.5),
+                                decoration: AppTheme.badgeDecoration(AppTheme.gold),
+                                child: Text(
+                                  AppIdFormatter.formatCustomerId(c.displayId),
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.gold,
+                                  ),
+                                ),
+                              ),
                             ],
-                          ],
+                          ),
+                          subtitle: Row(
+                            children: [
+                              if (c.phone != null && c.phone!.isNotEmpty) ...[
+                                const Icon(Icons.phone_rounded,
+                                    size: 11, color: AppTheme.textMuted),
+                                const SizedBox(width: 3),
+                                Text(
+                                  c.phone!,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
+                              if (c.address != null && c.address!.isNotEmpty) ...[
+                                if (c.phone != null && c.phone!.isNotEmpty)
+                                  const Text(' • ',
+                                      style: TextStyle(
+                                          fontSize: 11, color: AppTheme.textMuted)),
+                                Flexible(
+                                  child: Text(
+                                    c.address!,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: AppTheme.textMuted,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_circle_rounded,
+                                  color: AppTheme.gold, size: 20)
+                              : const Icon(Icons.chevron_right_rounded,
+                                  color: AppTheme.textMuted, size: 18),
+                          onTap: () => Navigator.of(context).pop(c),
                         ),
-                        trailing: isSelected
-                            ? const Icon(Icons.check_circle_rounded,
-                                color: AppTheme.gold, size: 20)
-                            : const Icon(Icons.chevron_right_rounded,
-                                color: AppTheme.textMuted, size: 18),
-                        onTap: () => Navigator.of(context).pop(c),
                       ),
                     );
                   },

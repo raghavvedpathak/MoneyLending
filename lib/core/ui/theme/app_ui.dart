@@ -92,7 +92,6 @@ class AppCard extends StatelessWidget {
     final card = Container(
       margin: margin,
       decoration: BoxDecoration(
-        color: backgroundColor ?? AppTheme.cardDark,
         borderRadius: BorderRadius.circular(borderRadius),
         border: border,
         boxShadow: [
@@ -104,8 +103,9 @@ class AppCard extends StatelessWidget {
         ],
       ),
       child: Material(
-        color: Colors.transparent,
+        color: backgroundColor ?? AppTheme.cardDark,
         borderRadius: BorderRadius.circular(borderRadius),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(borderRadius),
@@ -145,7 +145,6 @@ class AppSubCard extends StatelessWidget {
     return Container(
       margin: margin,
       decoration: BoxDecoration(
-        color: AppTheme.subCardDark,
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
           color: borderColor ?? AppTheme.borderDark,
@@ -153,8 +152,9 @@ class AppSubCard extends StatelessWidget {
         ),
       ),
       child: Material(
-        color: Colors.transparent,
+        color: AppTheme.subCardDark,
         borderRadius: BorderRadius.circular(borderRadius),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(borderRadius),

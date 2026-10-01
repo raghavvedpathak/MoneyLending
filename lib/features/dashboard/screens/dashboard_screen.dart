@@ -499,12 +499,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: AppTheme.cardDark,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppTheme.borderDark),
       ),
       child: Material(
-        color: Colors.transparent,
+        color: AppTheme.cardDark,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
         child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         onTap: () {
