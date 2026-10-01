@@ -1,8 +1,9 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/ui/widgets/date_input_field.dart';
 import '../../../core/utils/uuid_generator.dart';
 import '../../../domain/domain.dart';
@@ -49,6 +50,9 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
   void initState() {
     super.initState();
     _selectedType = widget.initialType;
+    _principalController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadInitialData();
   }
 
@@ -503,6 +507,19 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
+                  if (_items.isNotEmpty) ...[
+                    Builder(
+                      builder: (context) {
+                        final totalCollateral = CalculationEngine.calculateTotalItemValue(_items);
+                        final principal = double.tryParse(_principalController.text.trim()) ?? 0.0;
+                        return AppLtvBar(
+                          principal: principal,
+                          collateralValue: totalCollateral,
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   if (_items.isEmpty)
                     Container(
                       width: double.infinity,

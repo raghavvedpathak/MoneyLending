@@ -4,9 +4,8 @@ import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart' hide Settings;
-import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../viewmodels/dashboard_viewmodel.dart';
@@ -285,12 +284,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       segments: [
                         ButtonSegment(
                           value: RecordType.GIVEN,
-                          label: Text('Given ($givenCount)'),
+                          label: Text('Given • Borrowers ($givenCount)'),
                           icon: const Icon(Icons.arrow_upward_rounded),
                         ),
                         ButtonSegment(
                           value: RecordType.TAKEN,
-                          label: Text('Taken ($takenCount)'),
+                          label: Text('Taken • Lenders ($takenCount)'),
                           icon: const Icon(Icons.arrow_downward_rounded),
                         ),
                       ],
@@ -343,15 +342,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                       // 8. Record List Items with [FIX-TIMESTAMP-RECORDLIST-1]
                       if (filteredRecords.isEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(vertical: 32),
-                          alignment: Alignment.center,
-                          child: Text(
-                            _searchQuery.isNotEmpty
-                                ? 'No records matching "$_searchQuery"'
-                                : 'No active ${_currentTab == RecordType.GIVEN ? 'given loans' : 'taken borrowings'}',
-                            style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
-                          ),
+                        AppEmptyState(
+                          icon: _searchQuery.isNotEmpty ? Icons.search_off_rounded : Icons.receipt_long_outlined,
+                          title: _searchQuery.isNotEmpty
+                              ? 'No records matching "$_searchQuery"'
+                              : 'No active ${_currentTab == RecordType.GIVEN ? 'given loans' : 'taken borrowings'}',
+                          description: _searchQuery.isNotEmpty
+                              ? 'Try checking the customer name or transaction ID'
+                              : 'Tap "+ New Loan" below to record your first transaction',
                         )
                       else
                         ListView.builder(
@@ -364,23 +362,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           },
                         ),
                     ] else ...[
-                      // Customer Accounts & Ledger shortcut (Records managed in Customers tab)
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppTheme.cardDark,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.borderDark),
-                        ),
+                      // Borrower & Lender Ledgers shortcut
+                      AppCard(
+                        margin: const EdgeInsets.only(top: 16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
+                            const Row(
                               children: [
-                                const Icon(Icons.people_alt_outlined, color: AppTheme.gold, size: 20),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'Customer Accounts & Ledgers',
+                                Icon(Icons.people_alt_outlined, color: AppTheme.gold, size: 20),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Borrower & Lender Ledgers',
                                   style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.bold,
@@ -391,24 +384,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const SizedBox(height: 6),
                             const Text(
-                              'Individual customer loans and financier borrowings are organized under their respective customer profiles in the Customers tab.',
+                              'Loans given to Borrowers and borrowings taken from Lenders are organized under their respective profiles.',
                               style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                             ),
                             const SizedBox(height: 12),
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  AppNavigator.navigate(context, const CustomersRoute());
-                                },
-                                icon: const Icon(Icons.arrow_forward, size: 16),
-                                label: const Text('View Customer Accounts'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppTheme.gold,
-                                  side: BorderSide(color: AppTheme.gold.withValues(alpha: 0.5)),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      AppNavigator.navigate(context, const CustomersRoute());
+                                    },
+                                    icon: const Icon(Icons.people_outline, size: 16),
+                                    label: const Text('View Borrowers'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppTheme.accentCyan,
+                                      side: BorderSide(color: AppTheme.accentCyan.withValues(alpha: 0.5)),
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      AppNavigator.navigate(context, const LendersRoute());
+                                    },
+                                    icon: const Icon(Icons.account_balance_outlined, size: 16),
+                                    label: const Text('View Lenders'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppTheme.emerald,
+                                      side: BorderSide(color: AppTheme.emerald.withValues(alpha: 0.5)),
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -972,7 +983,12 @@ class _StatMiniCard extends StatelessWidget {
             fit: BoxFit.scaleDown,
             child: Text(
               value,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: color,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ],
@@ -1068,6 +1084,7 @@ class _NetPositionCard extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 color: AppTheme.gold,
                 letterSpacing: 0.5,
+                fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
           ),
@@ -1081,7 +1098,7 @@ class _NetPositionCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _NetStatMini(
-                  label: 'Capital Lent (Given)',
+                  label: 'Lent to Borrowers (Given)',
                   amount: CurrencyFormatter.format(totalGivenPrincipal),
                   count: '$activeGivenCount loans',
                   color: AppTheme.accentCyan,
@@ -1091,7 +1108,7 @@ class _NetPositionCard extends StatelessWidget {
               Container(width: 1, height: 40, color: AppTheme.borderDark),
               Expanded(
                 child: _NetStatMini(
-                  label: 'Capital Borrowed (Taken)',
+                  label: 'Borrowed from Lenders (Taken)',
                   amount: CurrencyFormatter.format(totalTakenPrincipal),
                   count: '$activeTakenCount borrowings',
                   color: AppTheme.emerald,

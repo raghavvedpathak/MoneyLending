@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
-import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../../../presentation/widgets/add_edit_record_bottom_sheet.dart';
@@ -137,7 +136,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
         content: Text(
           'Are you sure you want to delete transaction ${AppIdFormatter.formatTransactionId(_record!.transactionId)}?\n\n'
           'This will permanently delete the record and its payments. '
-          'The transaction ID and payment IDs will be permanently retired (FIX-ID-REUSE-1).',
+          'The transaction ID and payment IDs will be permanently archived and cannot be reused.',
         ),
         actions: [
           TextButton(
@@ -294,13 +293,8 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           // Header: Customer ID + Transaction ID (§10.2)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.cardDark,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.gold.withValues(alpha: 0.3)),
-            ),
+          AppCard(
+            borderColor: AppTheme.gold.withValues(alpha: 0.35),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -332,19 +326,10 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                         );
                       },
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: AppTheme.badgeDecoration(
-                        record.isGiven ? AppTheme.accentCyan : AppTheme.emerald,
-                      ),
-                      child: Text(
-                        record.type.name.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: record.isGiven ? AppTheme.accentCyan : AppTheme.emerald,
-                        ),
-                      ),
+                    AppStatusBadge(
+                      label: record.type.name.toUpperCase(),
+                      color: record.isGiven ? AppTheme.accentCyan : AppTheme.emerald,
+                      icon: record.isGiven ? Icons.arrow_outward : Icons.arrow_downward,
                     ),
                   ],
                 ),
@@ -363,23 +348,41 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                 ),
                 if (record.isGiven && _customer?.phone != null && _customer!.phone!.isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  Text(
-                    _customer!.phone!,
-                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                  Row(
+                    children: [
+                      const Icon(Icons.phone_outlined, size: 14, color: AppTheme.textMuted),
+                      const SizedBox(width: 4),
+                      Text(
+                        _customer!.phone!,
+                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                      ),
+                    ],
                   ),
                 ] else if (record.isTaken) ...[
                   if (_lender?.phone != null && _lender!.phone!.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      _lender!.phone!,
-                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                    Row(
+                      children: [
+                        const Icon(Icons.phone_outlined, size: 14, color: AppTheme.textMuted),
+                        const SizedBox(width: 4),
+                        Text(
+                          _lender!.phone!,
+                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                        ),
+                      ],
                     ),
                   ],
                   if (_lender?.institutionDetails != null && _lender!.institutionDetails!.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      _lender!.institutionDetails!,
-                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                    Row(
+                      children: [
+                        const Icon(Icons.business_outlined, size: 14, color: AppTheme.textMuted),
+                        const SizedBox(width: 4),
+                        Text(
+                          _lender!.institutionDetails!,
+                          style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                        ),
+                      ],
                     ),
                   ],
                 ],
@@ -389,13 +392,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
           const SizedBox(height: 16),
 
           // Status & Dates
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.cardDark,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.borderDark),
-            ),
+          AppCard(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -403,20 +400,10 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Status', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: AppTheme.badgeDecoration(
-                        isSettled ? AppTheme.accentCyan : AppTheme.emerald,
-                      ),
-                      child: Text(
-                        record.status.name.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: isSettled ? AppTheme.accentCyan : AppTheme.emerald,
-                        ),
-                      ),
+                    const SizedBox(height: 6),
+                    AppStatusBadge(
+                      label: record.status.name.toUpperCase(),
+                      color: isSettled ? AppTheme.accentCyan : AppTheme.emerald,
                     ),
                   ],
                 ),
@@ -585,13 +572,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
           ],
 
           // Financial Summary
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.cardDark,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.borderDark),
-            ),
+          AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -655,13 +636,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
 
           // Collateral Items (if any)
           if (record.items.isNotEmpty) ...[
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppTheme.cardDark,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.borderDark),
-              ),
+            AppCard(
               child: Builder(
                 builder: (context) {
                   final lendingTotal = record.items.fold(0.0, (s, i) => s + (i.itemValue > 0 ? i.itemValue : CalculationEngine.calculateItemValue(i)));
@@ -669,6 +644,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                   final hasMarketDrift = liveTotal > 0 && lendingTotal > 0 && (liveTotal != lendingTotal);
                   final totalDiff = liveTotal - lendingTotal;
                   final totalDiffPct = lendingTotal > 0 ? (totalDiff / lendingTotal) * 100.0 : 0.0;
+                  final effectiveCollateral = liveTotal > 0 ? liveTotal : lendingTotal;
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -731,7 +707,14 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                           ),
                         ],
                       ),
-                      const Divider(height: 20),
+                      const SizedBox(height: 12),
+                      AppLtvBar(
+                        principal: record.principalAmount,
+                        collateralValue: effectiveCollateral,
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
                       ...record.items.map(
                         (item) => CollateralItemTile(
                           item: item,
@@ -748,13 +731,7 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
           ],
 
           // Payment History (§10.2)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.cardDark,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.borderDark),
-            ),
+          AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -775,24 +752,32 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                 ),
                 const Divider(height: 16),
                 if (record.payments.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(
-                      child: Text(
-                        'No payments recorded yet.',
-                        style: TextStyle(color: AppTheme.textSecondary),
-                      ),
-                    ),
+                  const AppEmptyState(
+                    icon: Icons.receipt_long_outlined,
+                    title: 'No Payments Recorded Yet',
+                    description: 'No payments have been posted towards this loan.',
                   )
                 else
                   ...record.payments.map((p) {
-                    return Container(
+                    return AppSubCard(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppTheme.subCardDark,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      onTap: () {
+                        AppReceiptDialog.show(
+                          context,
+                          customerName: record.isGiven
+                              ? (_customer?.name ?? record.customerName ?? 'Customer')
+                              : (_lender?.name ?? record.customerName ?? 'Lender'),
+                          transactionId: AppIdFormatter.formatTransactionId(record.transactionId),
+                          amountPaid: p.amount,
+                          interestPaid: p.interestPaid,
+                          principalPaid: p.principalPaid,
+                          remainingPrincipal: financials.remainingPrincipal,
+                          remainingInterest: financials.remainingInterest,
+                          paymentDate: p.date,
+                          notes: p.notes,
+                        );
+                      },
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -801,17 +786,9 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                                    child: Text(
-                                      AppIdFormatter.formatPaymentId(p.paymentId),
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppTheme.gold,
-                                      ),
-                                    ),
+                                  AppStatusBadge(
+                                    label: AppIdFormatter.formatPaymentId(p.paymentId),
+                                    color: AppTheme.gold,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
@@ -827,13 +804,19 @@ class _RecordDetailScreenState extends State<RecordDetailScreen> {
                               ),
                             ],
                           ),
-                          Text(
-                            CurrencyFormatter.format(p.amount),
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.emerald,
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                CurrencyFormatter.format(p.amount),
+                                style: AppUi.currencyStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.emerald,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(Icons.receipt_long_outlined, size: 16, color: AppTheme.textMuted),
+                            ],
                           ),
                         ],
                       ),
@@ -907,9 +890,9 @@ class _FinRow extends StatelessWidget {
           ),
           Text(
             value,
-            style: TextStyle(
+            style: AppUi.currencyStyle(
               fontSize: 14,
-              fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
               color: highlightColor ?? AppTheme.textPrimary,
             ),
           ),

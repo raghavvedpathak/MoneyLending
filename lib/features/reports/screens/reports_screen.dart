@@ -4,9 +4,8 @@ import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/pdf/pdf.dart';
-import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../viewmodels/reports_viewmodel.dart';
@@ -266,69 +265,63 @@ class _OverviewTabState extends State<_OverviewTab> with AutomaticKeepAliveClien
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Executive Financial Summary', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    // Given Side (Borrowers)
-                    const Text('Given Side (Borrowers)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.accentCyan)),
-                    const SizedBox(height: 6),
-                    _ReportRow(label: 'Total Principal Lent (Given)', value: CurrencyFormatter.format(dashboard.totalPrincipalGiven)),
-                    _ReportRow(label: 'Total Interest Accrued', value: CurrencyFormatter.format(dashboard.totalInterestAccruedGiven)),
-                    _ReportRow(
-                      label: 'Grand Total Outstanding Due',
-                      value: CurrencyFormatter.format(dashboard.totalDueGiven),
-                      isHighlight: true,
-                    ),
-                    const Divider(height: 20),
-                    // Taken Side (Lenders)
-                    const Text('Taken Side (Lenders)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
-                    const SizedBox(height: 6),
-                    _ReportRow(label: 'Total Principal Borrowed (Taken)', value: CurrencyFormatter.format(dashboard.totalPrincipalTaken)),
-                    _ReportRow(label: 'Total Interest Payable (Taken)', value: CurrencyFormatter.format(dashboard.totalInterestAccruedTaken)),
-                    _ReportRow(
-                      label: 'Total Due to Lenders',
-                      value: CurrencyFormatter.format(dashboard.totalDueTaken),
-                      isHighlight: true,
-                    ),
-                    const Divider(height: 20),
-                    // Net Position
-                    const Text('Net Position & Spread', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.gold)),
-                    const SizedBox(height: 6),
-                    _ReportRow(
-                      label: 'Net Principal Outstanding',
-                      value: CurrencyFormatter.format(dashboard.totalPrincipalGiven - dashboard.totalPrincipalTaken),
-                    ),
-                    _ReportRow(
-                      label: 'Net Interest Spread',
-                      value: CurrencyFormatter.format(dashboard.totalInterestAccruedGiven - dashboard.totalInterestAccruedTaken),
-                    ),
-                    _ReportRow(
-                      label: 'Net Outstanding Due Balance',
-                      value: CurrencyFormatter.format(dashboard.totalDueGiven - dashboard.totalDueTaken),
-                      isHighlight: true,
-                    ),
-                  ],
-                ),
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Executive Financial Summary', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  // Given Side (Borrowers)
+                  const Text('Given Side (Borrowers)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.accentCyan)),
+                  const SizedBox(height: 6),
+                  _ReportRow(label: 'Total Principal Lent (Given)', value: CurrencyFormatter.format(dashboard.totalPrincipalGiven)),
+                  _ReportRow(label: 'Total Interest Accrued', value: CurrencyFormatter.format(dashboard.totalInterestAccruedGiven)),
+                  _ReportRow(
+                    label: 'Grand Total Outstanding Due',
+                    value: CurrencyFormatter.format(dashboard.totalDueGiven),
+                    isHighlight: true,
+                  ),
+                  const Divider(height: 20),
+                  // Taken Side (Lenders)
+                  const Text('Taken Side (Lenders)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.emerald)),
+                  const SizedBox(height: 6),
+                  _ReportRow(label: 'Total Principal Borrowed (Taken)', value: CurrencyFormatter.format(dashboard.totalPrincipalTaken)),
+                  _ReportRow(label: 'Total Interest Payable (Taken)', value: CurrencyFormatter.format(dashboard.totalInterestAccruedTaken)),
+                  _ReportRow(
+                    label: 'Total Due to Lenders',
+                    value: CurrencyFormatter.format(dashboard.totalDueTaken),
+                    isHighlight: true,
+                  ),
+                  const Divider(height: 20),
+                  // Net Position
+                  const Text('Net Position & Spread', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.gold)),
+                  const SizedBox(height: 6),
+                  _ReportRow(
+                    label: 'Net Principal Outstanding',
+                    value: CurrencyFormatter.format(dashboard.totalPrincipalGiven - dashboard.totalPrincipalTaken),
+                  ),
+                  _ReportRow(
+                    label: 'Net Interest Spread',
+                    value: CurrencyFormatter.format(dashboard.totalInterestAccruedGiven - dashboard.totalInterestAccruedTaken),
+                  ),
+                  _ReportRow(
+                    label: 'Net Outstanding Due Balance',
+                    value: CurrencyFormatter.format(dashboard.totalDueGiven - dashboard.totalDueTaken),
+                    isHighlight: true,
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Portfolio Health', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    _ReportRow(label: 'Total Active Loans', value: '${records.where((r) => r.status == RecordStatus.ACTIVE).length}'),
-                    _ReportRow(label: 'Total Settled Loans', value: '${records.where((r) => r.status == RecordStatus.SETTLED).length}'),
-                  ],
-                ),
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Portfolio Health', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  _ReportRow(label: 'Total Active Loans', value: '${records.where((r) => r.status == RecordStatus.ACTIVE).length}'),
+                  _ReportRow(label: 'Total Settled Loans', value: '${records.where((r) => r.status == RecordStatus.SETTLED).length}'),
+                ],
               ),
             ),
           ],
@@ -1532,7 +1525,7 @@ class _ReportRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             value,
-            style: TextStyle(
+            style: AppUi.currencyStyle(
               fontSize: isHighlight ? 17 : 14,
               fontWeight: FontWeight.bold,
               color: isHighlight ? AppTheme.gold : AppTheme.textPrimary,

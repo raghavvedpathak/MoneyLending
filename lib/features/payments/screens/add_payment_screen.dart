@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
-import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/ui/widgets/date_input_field.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../core/utils/uuid_generator.dart';
@@ -88,12 +87,25 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
       await sl<RecordRepository>().addPayment(payment);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          AppTheme.successSnackBar(
-            'Payment of ${CurrencyFormatter.format(amount)} recorded successfully!',
-          ),
+        final newRemainingPrincipal = (_outstandingPrincipal - allocation.principalPaid).clamp(0.0, double.infinity);
+        final newRemainingInterest = (_outstandingInterest - allocation.interestPaid).clamp(0.0, double.infinity);
+
+        await AppReceiptDialog.show(
+          context,
+          customerName: widget.record.customerName ?? 'Customer',
+          transactionId: widget.record.transactionId,
+          amountPaid: amount,
+          interestPaid: allocation.interestPaid,
+          principalPaid: allocation.principalPaid,
+          remainingPrincipal: newRemainingPrincipal,
+          remainingInterest: newRemainingInterest,
+          paymentDate: _paymentDate,
+          notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
         );
-        Navigator.of(context).pop(true);
+
+        if (mounted) {
+          Navigator.of(context).pop(true);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -124,72 +136,136 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
             padding: const EdgeInsets.all(16),
             children: [
           // Header Summary Card
-          Card(
-            color: AppTheme.subCardDark,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        widget.record.customerName ?? 'Customer',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: AppTheme.badgeDecoration(AppTheme.gold, borderRadius: 8),
-                        child: Text(
-                          AppIdFormatter.formatTransactionId(widget.record.transactionId),
-                          style: const TextStyle(
+          AppCard(
+            backgroundColor: AppTheme.subCardDark,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      widget.record.customerName ?? 'Customer',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    AppStatusBadge(
+                      label: AppIdFormatter.formatTransactionId(widget.record.transactionId),
+                      color: AppTheme.gold,
+                      borderRadius: 8,
+                    ),
+                  ],
+                ),
+                const Divider(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Outstanding Interest (${AppDateFormatter.formatMonths(_monthsElapsed)})', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                        Text(
+                          CurrencyFormatter.format(_outstandingInterest),
+                          style: AppUi.currencyStyle(
+                            fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: AppTheme.gold,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Outstanding Interest (${AppDateFormatter.formatMonths(_monthsElapsed)})', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                          Text(
-                            CurrencyFormatter.format(_outstandingInterest),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.gold,
-                            ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text('Remaining Principal', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                        Text(
+                          CurrencyFormatter.format(_outstandingPrincipal),
+                          style: AppUi.currencyStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.accentCyan,
                           ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          const Text('Remaining Principal', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                          Text(
-                            CurrencyFormatter.format(_outstandingPrincipal),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.accentCyan,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
+
+          // 1-Tap Quick Action Preset Chips
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (_outstandingInterest > 0)
+                AppQuickChip(
+                  label: 'Pay Full Interest (${CurrencyFormatter.format(_outstandingInterest)})',
+                  icon: Icons.bolt_rounded,
+                  color: AppTheme.gold,
+                  isSelected: (_enteredAmount - _outstandingInterest).abs() < 0.01,
+                  onPressed: () {
+                    setState(() {
+                      _amountController.text = _outstandingInterest.toStringAsFixed(2);
+                      _enteredAmount = _outstandingInterest;
+                    });
+                  },
+                ),
+              if (_outstandingPrincipal > 0 || _outstandingInterest > 0)
+                AppQuickChip(
+                  label: 'Full Settlement (${CurrencyFormatter.format(_outstandingInterest + _outstandingPrincipal)})',
+                  icon: Icons.check_circle_outline_rounded,
+                  color: AppTheme.emerald,
+                  isSelected: (_enteredAmount - (_outstandingInterest + _outstandingPrincipal)).abs() < 0.01,
+                  onPressed: () {
+                    final total = _outstandingInterest + _outstandingPrincipal;
+                    setState(() {
+                      _amountController.text = total.toStringAsFixed(2);
+                      _enteredAmount = total;
+                    });
+                  },
+                ),
+              AppQuickChip(
+                label: '+₹500',
+                color: AppTheme.silver,
+                onPressed: () {
+                  final cur = double.tryParse(_amountController.text.trim()) ?? 0.0;
+                  final next = cur + 500;
+                  setState(() {
+                    _amountController.text = next.toStringAsFixed(0);
+                    _enteredAmount = next;
+                  });
+                },
+              ),
+              AppQuickChip(
+                label: '+₹1,000',
+                color: AppTheme.silver,
+                onPressed: () {
+                  final cur = double.tryParse(_amountController.text.trim()) ?? 0.0;
+                  final next = cur + 1000;
+                  setState(() {
+                    _amountController.text = next.toStringAsFixed(0);
+                    _enteredAmount = next;
+                  });
+                },
+              ),
+              AppQuickChip(
+                label: '+₹5,000',
+                color: AppTheme.silver,
+                onPressed: () {
+                  final cur = double.tryParse(_amountController.text.trim()) ?? 0.0;
+                  final next = cur + 5000;
+                  setState(() {
+                    _amountController.text = next.toStringAsFixed(0);
+                    _enteredAmount = next;
+                  });
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
 
           // Payment Input
           TextField(
@@ -211,9 +287,10 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
 
           // Live Interest-First Split Card
           if (_enteredAmount > 0)
-            Container(
+            AppCard(
+              backgroundColor: AppTheme.gold.withValues(alpha: 0.06),
+              borderColor: AppTheme.gold.withValues(alpha: 0.25),
               padding: const EdgeInsets.all(16),
-              decoration: AppTheme.bannerDecoration(AppTheme.gold),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -222,7 +299,7 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
                       Icon(Icons.pie_chart_outline, size: 18, color: AppTheme.gold),
                       SizedBox(width: 8),
                       Text(
-                        'Interest-First Split Allocation (§5.2.4)',
+                        'Payment Allocation (Interest cleared first)',
                         style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.gold),
                       ),
                     ],
@@ -231,10 +308,13 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Interest Extinguished:', style: TextStyle(color: AppTheme.textSecondary)),
+                      const Text('Interest Cleared:', style: TextStyle(color: AppTheme.textSecondary)),
                       Text(
                         CurrencyFormatter.format(allocation.interestPaid),
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.gold),
+                        style: AppUi.currencyStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.gold,
+                        ),
                       ),
                     ],
                   ),
@@ -245,7 +325,10 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
                       const Text('Principal Reduced:', style: TextStyle(color: AppTheme.textSecondary)),
                       Text(
                         CurrencyFormatter.format(allocation.principalPaid),
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.emerald),
+                        style: AppUi.currencyStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.emerald,
+                        ),
                       ),
                     ],
                   ),

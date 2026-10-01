@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
-import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../../../presentation/widgets/add_edit_record_bottom_sheet.dart';
@@ -80,7 +79,7 @@ class _LenderDetailScreenState extends State<LenderDetailScreen> {
         title: const Text('Delete Lender'),
         content: Text(
           'Are you sure you want to delete ${lender.name} (${AppIdFormatter.formatLenderId(lender.displayId)})?\n\n'
-          'The lender ID will be permanently retired (FIX-ID-REUSE-1) and never reissued.\n\n'
+          'The lender ID will be permanently archived and cannot be reused.\n\n'
           'Lenders with active or settled records cannot be deleted.',
         ),
         actions: [
@@ -220,18 +219,14 @@ class _LenderDetailScreenState extends State<LenderDetailScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               // Header: Name + Lender ID (§10.2)
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.cardDark,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.gold.withValues(alpha: 0.3)),
-                ),
+              AppCard(
+                borderColor: AppTheme.gold.withValues(alpha: 0.35),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Column(
@@ -241,60 +236,53 @@ class _LenderDetailScreenState extends State<LenderDetailScreen> {
                                 lender.name,
                                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                               ),
-                              const SizedBox(height: 2),
+                              const SizedBox(height: 3),
                               Text(
                                 AppIdFormatter.formatLenderId(lender.displayId),
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   color: AppTheme.gold,
+                                  letterSpacing: 0.5,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: AppTheme.badgeDecoration(
-                            isInstitution ? AppTheme.accentCyan : AppTheme.emerald,
-                            borderRadius: 8,
-                          ),
-                          child: Text(
-                            lender.lenderType.displayName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: isInstitution ? AppTheme.accentCyan : AppTheme.emerald,
-                            ),
-                          ),
+                        AppStatusBadge(
+                          label: lender.lenderType.displayName,
+                          color: isInstitution ? AppTheme.accentCyan : AppTheme.emerald,
+                          icon: isInstitution ? Icons.business_outlined : Icons.person_outline,
                         ),
                       ],
                     ),
                     if (lender.phone != null && lender.phone!.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       Row(
                         children: [
                           const Icon(Icons.phone_outlined, size: 14, color: AppTheme.textMuted),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 6),
                           Text(lender.phone!, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
                         ],
                       ),
                     ],
                     if (lender.institutionDetails != null && lender.institutionDetails!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
-                          const Icon(Icons.business_outlined, size: 14, color: AppTheme.textMuted),
-                          const SizedBox(width: 4),
+                          const Icon(Icons.account_balance_outlined, size: 14, color: AppTheme.textMuted),
+                          const SizedBox(width: 6),
                           Text(lender.institutionDetails!, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
                         ],
                       ),
                     ],
                     if (lender.notes != null && lender.notes!.isNotEmpty) ...[
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Icon(Icons.note_alt_outlined, size: 14, color: AppTheme.textMuted),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               lender.notes!,
@@ -313,26 +301,29 @@ class _LenderDetailScreenState extends State<LenderDetailScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: _StatCard(
+                    child: AppStatCard(
                       title: 'Total Borrowed',
                       value: CurrencyFormatter.format(state.totalPrincipal),
-                      color: AppTheme.emerald,
+                      accentColor: AppTheme.emerald,
+                      icon: Icons.south_west,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _StatCard(
+                    child: AppStatCard(
                       title: 'Interest Accrued',
                       value: CurrencyFormatter.format(state.totalInterest),
-                      color: AppTheme.gold,
+                      accentColor: AppTheme.gold,
+                      icon: Icons.trending_up,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _StatCard(
+                    child: AppStatCard(
                       title: 'Total Due',
                       value: CurrencyFormatter.format(state.totalDue),
-                      color: AppTheme.rose,
+                      accentColor: AppTheme.rose,
+                      icon: Icons.payments_outlined,
                     ),
                   ),
                 ],
@@ -340,26 +331,20 @@ class _LenderDetailScreenState extends State<LenderDetailScreen> {
               const SizedBox(height: 24),
 
               // Per-Lender Ledger History Header (§10.2: TAKEN-only)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Ledger History (${state.records.length})',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ],
+              AppSectionHeader(
+                title: 'Ledger History (${state.records.length})',
+                trailing: const AppStatusBadge(
+                  label: 'TAKEN ONLY',
+                  color: AppTheme.emerald,
+                ),
               ),
               const SizedBox(height: 12),
 
               if (state.records.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32),
-                  child: Center(
-                    child: Text(
-                      'No TAKEN ledger records found for this lender.',
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ),
+                const AppEmptyState(
+                  icon: Icons.receipt_long_outlined,
+                  title: 'No TAKEN ledger records found for this lender.',
+                  description: 'Tap "+ New Borrowing" below to record a loan taken from this lender.',
                 )
               else
                 ...state.records.map((item) {
@@ -386,44 +371,6 @@ class _LenderDetailScreenState extends State<LenderDetailScreen> {
   }
 }
 
-class _StatCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final Color color;
-
-  const _StatCard({
-    required this.title,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: AppTheme.statBoxDecoration(color),
-      child: Column(
-        children: [
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _LenderRecordLedgerCard extends StatelessWidget {
   final LenderLedgerRecordItem item;
   final VoidCallback onTap;
@@ -441,91 +388,48 @@ class _LenderRecordLedgerCard extends StatelessWidget {
     final financials = item.financials;
     final isActive = record.isActive;
 
-    return Card(
+    return AppCard(
       margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      onTap: onTap,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Row 1: transactionId + Type & Status Badges
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Row 1: transactionId + Type & Status Badges
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      // transactionId header (§10.2: TRAN...)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                        child: Text(
-                          AppIdFormatter.formatTransactionId(record.transactionId),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                            color: AppTheme.gold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Type Badge (always TAKEN for Lender)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: AppTheme.badgeDecoration(AppTheme.emerald),
-                        child: const Text(
-                          'TAKEN',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.emerald,
-                          ),
-                        ),
-                      ),
-                      if (record.linkedRecordId != null && record.linkedRecordId!.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: AppTheme.badgeDecoration(AppTheme.gold),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.link, size: 10, color: AppTheme.gold),
-                              const SizedBox(width: 3),
-                              Text(
-                                item.linkedRecord != null
-                                    ? 'LINKED: ${AppIdFormatter.formatTransactionId(item.linkedRecord!.transactionId)}'
-                                    : 'LINKED',
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.gold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
+                  // transactionId header (§10.2: TRAN...)
+                  AppStatusBadge(
+                    label: AppIdFormatter.formatTransactionId(record.transactionId),
+                    color: AppTheme.gold,
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: AppTheme.badgeDecoration(
-                      isActive ? AppTheme.emerald : AppTheme.accentCyan,
-                    ),
-                    child: Text(
-                      record.status.name.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: isActive ? AppTheme.emerald : AppTheme.accentCyan,
-                      ),
-                    ),
+                  const SizedBox(width: 8),
+                  // Type Badge (always TAKEN for Lender)
+                  const AppStatusBadge(
+                    label: 'TAKEN',
+                    color: AppTheme.emerald,
                   ),
+                  if (record.linkedRecordId != null && record.linkedRecordId!.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    AppStatusBadge(
+                      label: item.linkedRecord != null
+                          ? 'LINKED: ${AppIdFormatter.formatTransactionId(item.linkedRecord!.transactionId)}'
+                          : 'LINKED',
+                      color: AppTheme.gold,
+                      icon: Icons.link,
+                    ),
+                  ],
                 ],
               ),
+              AppStatusBadge(
+                label: record.status.name.toUpperCase(),
+                color: isActive ? AppTheme.emerald : AppTheme.accentCyan,
+              ),
+            ],
+          ),
               const SizedBox(height: 8),
 
               // Row 2: Date with formatDate() [FIX-TIMESTAMP-CUSTOMERHISTORY-1] and duration
@@ -828,8 +732,6 @@ class _LenderRecordLedgerCard extends StatelessWidget {
               ],
             ],
           ),
-        ),
-      ),
-    );
+        );
   }
 }

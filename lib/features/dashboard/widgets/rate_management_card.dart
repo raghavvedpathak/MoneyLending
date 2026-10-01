@@ -32,6 +32,7 @@ class _RateManagementCardState extends State<RateManagementCard> {
   final Map<String, TextEditingController> _rateControllers = {};
   final Map<String, String?> _rateErrors = {};
   final Map<String, bool> _isUpdating = {};
+  bool _isExpanded = true;
 
   @override
   void dispose() {
@@ -148,41 +149,83 @@ class _RateManagementCardState extends State<RateManagementCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppTheme.gold.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
+          InkWell(
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.gold.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.price_change_outlined, color: AppTheme.gold, size: 20),
                 ),
-                child: const Icon(Icons.price_change_outlined, color: AppTheme.gold, size: 20),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Today's Collateral Rates",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.textPrimary,
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Today's Collateral Rates",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textPrimary,
+                        ),
                       ),
-                    ),
-                    Text(
-                      'Live market valuation benchmark per unit',
-                      style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                    ),
-                  ],
+                      Text(
+                        'Live market valuation benchmark per unit',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                IconButton(
+                  icon: Icon(
+                    _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    color: AppTheme.gold,
+                  ),
+                  onPressed: () => setState(() => _isExpanded = !_isExpanded),
+                  tooltip: _isExpanded ? 'Collapse Rates' : 'Expand Rates',
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          const Divider(height: 1, color: AppTheme.borderDark),
-          const SizedBox(height: 12),
+          if (!_isExpanded) ...[
+            const SizedBox(height: 10),
+            StreamBuilder<List<ItemRate>>(
+              stream: widget.viewModel.watchCurrentRates(),
+              builder: (context, snapshot) {
+                final rates = snapshot.data ?? [];
+                if (rates.isEmpty) return const SizedBox.shrink();
+                return Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: rates.map((r) {
+                    final rateText = r.ratePerUnit > 0 ? '₹${r.ratePerUnit.toStringAsFixed(0)}/g' : 'Not set';
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppTheme.subCardDark,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppTheme.borderDark),
+                      ),
+                      child: Text(
+                        '${r.itemCategory}: $rateText',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+          ],
+          if (_isExpanded) ...[
+            const SizedBox(height: 16),
+            const Divider(height: 1, color: AppTheme.borderDark),
+            const SizedBox(height: 12),
 
           // Rates list via watchCurrentRates() stream
           StreamBuilder<List<ItemRate>>(
@@ -214,6 +257,7 @@ class _RateManagementCardState extends State<RateManagementCard> {
 
           // M-10 FIX: Add new category row
           _buildAddCategoryRow(),
+          ],
         ],
       ),
     );

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/data/backup/backup.dart';
 import '../../../core/di/injection.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/utils/uuid_generator.dart';
 import '../../../domain/domain.dart';
 
@@ -336,258 +336,237 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                // Business Profile
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.storefront_rounded, color: AppTheme.accentCyan),
-                            SizedBox(width: 8),
-                            Text('Business Profile', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          key: const Key('settings_shop_name_field'),
-                          controller: _shopNameController,
-                          decoration: const InputDecoration(labelText: 'Lending Business / Shop Name'),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          key: const Key('settings_phone_field'),
-                          controller: _phoneController,
-                          keyboardType: TextInputType.phone,
-                          decoration: const InputDecoration(labelText: 'Contact Phone Number'),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          key: const Key('settings_address_field'),
-                          controller: _addressController,
-                          decoration: const InputDecoration(labelText: 'Business Address (Shown on PDFs)'),
-                        ),
-                      ],
-                    ),
+                    // Business Profile
+                    AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.storefront_rounded, color: AppTheme.accentCyan),
+                          SizedBox(width: 8),
+                          Text('Business Profile', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        key: const Key('settings_shop_name_field'),
+                        controller: _shopNameController,
+                        decoration: const InputDecoration(labelText: 'Lending Business / Shop Name'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('settings_phone_field'),
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(labelText: 'Contact Phone Number'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('settings_address_field'),
+                        controller: _addressController,
+                        decoration: const InputDecoration(labelText: 'Business Address (Shown on PDFs)'),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
                 // Loan Configuration
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.percent_rounded, color: AppTheme.gold),
-                            SizedBox(width: 8),
-                            Text('Default Loan Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          ],
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.percent_rounded, color: AppTheme.gold),
+                          SizedBox(width: 8),
+                          Text('Default Loan Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        key: const Key('settings_default_rate_field'),
+                        controller: _defaultRateController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'Default Monthly Interest Rate (%)',
+                          suffixText: '% / month',
                         ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          key: const Key('settings_default_rate_field'),
-                          controller: _defaultRateController,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          decoration: const InputDecoration(
-                            labelText: 'Default Monthly Interest Rate (%)',
-                            suffixText: '% / month',
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
                 // Live Item Rates (Gold / Silver)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.diamond_outlined, color: AppTheme.emerald),
-                            SizedBox(width: 8),
-                            Text('Live Market Collateral Rates', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Used for automatic collateral drop and overshoot risk alerts (§5.3 & §5.4).',
-                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _goldRateController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: 'Gold Rate (₹ / g)',
-                                  prefixText: '₹ ',
-                                ),
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.diamond_outlined, color: AppTheme.emerald),
+                          SizedBox(width: 8),
+                          Text('Live Market Collateral Rates', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Used for automatic collateral drop and overshoot risk alerts (§5.3 & §5.4).',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _goldRateController,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: const InputDecoration(
+                                labelText: 'Gold Rate (₹ / g)',
+                                prefixText: '₹ ',
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextField(
-                                controller: _silverRateController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: 'Silver Rate (₹ / g)',
-                                  prefixText: '₹ ',
-                                ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: _silverRateController,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: const InputDecoration(
+                                labelText: 'Silver Rate (₹ / g)',
+                                prefixText: '₹ ',
                               ),
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
                 // Backup & Restore (§7.2, Addendum G, FIX-ID-BACKUP-1)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.backup_rounded, color: AppTheme.accentCyan),
-                            SizedBox(width: 8),
-                            Text('JSON Backup & Restore', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Export an offline JSON backup or restore an existing one. Restoring replaces all records and customers transactionally (§7.2).',
-                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                key: const Key('settings_export_button'),
-                                onPressed: _isExporting || _isRestoring ? null : _exportBackup,
-                                icon: _isExporting
-                                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Icon(Icons.file_upload_outlined),
-                                label: const Text('Export Backup'),
-                              ),
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.backup_rounded, color: AppTheme.accentCyan),
+                          SizedBox(width: 8),
+                          Text('JSON Backup & Restore', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Export an offline JSON backup or restore an existing one. Restoring replaces all records and customers transactionally (§7.2).',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              key: const Key('settings_export_button'),
+                              onPressed: _isExporting || _isRestoring ? null : _exportBackup,
+                              icon: _isExporting
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.file_upload_outlined),
+                              label: const Text('Export Backup'),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                key: const Key('settings_restore_button'),
-                                onPressed: _isExporting || _isRestoring ? null : _importBackup,
-                                icon: _isRestoring
-                                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Icon(Icons.file_download_outlined),
-                                label: const Text('Restore Backup'),
-                              ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              key: const Key('settings_restore_button'),
+                              onPressed: _isExporting || _isRestoring ? null : _importBackup,
+                              icon: _isRestoring
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.file_download_outlined),
+                              label: const Text('Restore Backup'),
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
                 // Danger Zone / Clear All Data (§Tab 4)
-                Card(
-                  color: AppTheme.rose.withValues(alpha: 0.05),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: AppTheme.rose.withValues(alpha: 0.3)),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.warning_amber_rounded, color: AppTheme.rose),
-                            SizedBox(width: 8),
-                            Text(
-                              'Danger Zone',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.rose,
-                              ),
+                AppCard(
+                  backgroundColor: AppTheme.rose.withValues(alpha: 0.05),
+                  borderColor: AppTheme.rose.withValues(alpha: 0.3),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: AppTheme.rose),
+                          SizedBox(width: 8),
+                          Text(
+                            'Danger Zone',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.rose,
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Permanently delete all customers, loans, transactions, and payments. Empties retired IDs so all sequences restart at 01.',
-                          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            key: const Key('settings_clear_data_button'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.rose,
-                              side: const BorderSide(color: AppTheme.rose),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            onPressed: _isExporting || _isRestoring || _isClearing ? null : _clearAllData,
-                            icon: _isClearing
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: AppTheme.rose,
-                                    ),
-                                  )
-                                : const Icon(Icons.delete_forever_rounded),
-                            label: const Text('Clear All Data'),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Permanently delete all customers, loans, transactions, and payments. Empties retired IDs so all sequences restart at 01.',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          key: const Key('settings_clear_data_button'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.rose,
+                            side: const BorderSide(color: AppTheme.rose),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: _isExporting || _isRestoring || _isClearing ? null : _clearAllData,
+                          icon: _isClearing
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppTheme.rose,
+                                  ),
+                                )
+                              : const Icon(Icons.delete_forever_rounded),
+                          label: const Text('Clear All Data'),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
                 // System & Database Information
-                Card(
-                  child: const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.info_outline, color: AppTheme.textSecondary),
-                            SizedBox(width: 8),
-                            Text('App & Database Info', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        SizedBox(height: 12),
-                        Text('Architecture: 100% Offline SQLite with Mutex & WAL'),
-                        SizedBox(height: 4),
-                        Text('Version: 1.0.0+1 (Native Android & Windows)'),
-                      ],
-                    ),
+                const AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.info_outline, color: AppTheme.textSecondary),
+                          SizedBox(width: 8),
+                          Text('App & Database Info', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      Text('Architecture: 100% Offline SQLite with Mutex & WAL'),
+                      SizedBox(height: 4),
+                      Text('Version: 1.0.0+1 (Native Android & Windows)'),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 24),

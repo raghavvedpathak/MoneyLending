@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
-import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../widgets/add_edit_customer_dialog.dart';
@@ -20,6 +19,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
   final CustomerRepository _customerRepository = sl<CustomerRepository>();
   final RecordRepository _recordRepository = sl<RecordRepository>();
 
+  final TextEditingController _searchController = TextEditingController();
   List<Customer> _allCustomers = [];
   List<Customer> _filteredCustomers = [];
   bool _isLoading = true;
@@ -29,6 +29,12 @@ class _CustomersScreenState extends State<CustomersScreen> {
   void initState() {
     super.initState();
     _loadCustomers();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCustomers() async {
@@ -362,6 +368,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: TextField(
+              controller: _searchController,
               decoration: InputDecoration(
                 hintText: 'Search by borrower name, ID (e.g. CUST26-27-01), phone...',
                 prefixIcon: const Icon(Icons.search),
@@ -369,6 +376,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     ? IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () {
+                          _searchController.clear();
                           setState(() {
                             _searchQuery = '';
                             _applySearch();
@@ -386,82 +394,91 @@ class _CustomersScreenState extends State<CustomersScreen> {
             ),
           ),
 
-            // Borrower List
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _filteredCustomers.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.people_outline, size: 64, color: AppTheme.textMuted),
-                              const SizedBox(height: 16),
-                              Text(
-                                _searchQuery.isNotEmpty ? 'No matching borrowers' : 'No borrowers added yet',
-                                style: const TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+          // Borrower List
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _filteredCustomers.isEmpty
+                    ? AppEmptyState(
+                        icon: Icons.people_outline,
+                        title: _searchQuery.isNotEmpty ? 'No matching borrowers' : 'No borrowers added yet',
+                        description: _searchQuery.isNotEmpty
+                            ? 'Try searching by a different name, phone, or ID.'
+                            : 'Add borrowers to keep track of loans, collateral, and payments.',
+                        actionLabel: _searchQuery.isNotEmpty ? 'Clear Search' : '+ New Customer',
+                        onAction: () {
+                          if (_searchQuery.isNotEmpty) {
+                            _searchController.clear();
+                            setState(() {
+                              _searchQuery = '';
+                              _applySearch();
+                            });
+                          } else {
+                            _showAddCustomerDialog();
+                          }
+                        },
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        itemCount: _filteredCustomers.length,
+                        itemBuilder: (context, index) {
+                          final customer = _filteredCustomers[index];
+                          return AppCard(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            onTap: () async {
+                              await AppNavigator.navigate(
+                                context,
+                                CustomerDetailRoute(customer.id),
+                              );
+                              if (mounted) {
+                                _loadCustomers();
+                              }
+                            },
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: CircleAvatar(
+                                backgroundColor: AppTheme.gold.withValues(alpha: 0.15),
+                                foregroundColor: AppTheme.gold,
+                                child: Text(
+                                  customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
                               ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: _filteredCustomers.length,
-                          itemBuilder: (context, index) {
-                            final customer = _filteredCustomers[index];
-                            return Card(
-                              child: ListTile(
-                                onTap: () async {
-                                  await AppNavigator.navigate(
-                                    context,
-                                    CustomerDetailRoute(customer.id),
-                                  );
-                                  if (mounted) {
-                                    _loadCustomers();
-                                  }
-                                },
-                                leading: CircleAvatar(
-                                  backgroundColor: AppTheme.gold.withValues(alpha: 0.15),
-                                  foregroundColor: AppTheme.gold,
-                                  child: Text(
-                                    customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                              title: Text(
+                                customer.name,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    AppIdFormatter.formatCustomerId(customer.displayId),
+                                    style: const TextStyle(
+                                      color: AppTheme.gold,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
                                   ),
-                                ),
-                                title: Text(
-                                  customer.name,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
+                                  if (customer.phone != null && customer.phone!.isNotEmpty) ...[
                                     const SizedBox(height: 2),
                                     Text(
-                                      AppIdFormatter.formatCustomerId(customer.displayId),
-                                      style: const TextStyle(
-                                        color: AppTheme.gold,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
+                                      customer.phone!,
+                                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                                     ),
-                                    if (customer.phone != null && customer.phone!.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        customer.phone!,
-                                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                                      ),
-                                    ],
                                   ],
-                                ),
-                                trailing: const Icon(
-                                  Icons.arrow_forward_ios_rounded,
-                                  size: 14,
-                                  color: AppTheme.textMuted,
-                                ),
+                                ],
                               ),
-                            );
-                          },
-                        ),
-            ),
+                              trailing: const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 14,
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
           ],
       ),
     );

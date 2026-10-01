@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../domain/domain.dart';
 import '../widgets/add_edit_lender_dialog.dart';
 
@@ -201,23 +201,20 @@ class _LenderListScreenState extends State<LenderListScreen> {
               final filteredLenders = _filterLenders(allLenders, _searchQuery);
 
               if (filteredLenders.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.account_balance_outlined, size: 64, color: AppTheme.textMuted),
-                      const SizedBox(height: 16),
-                      Text(
-                        _searchQuery.isNotEmpty ? 'No matching lenders' : 'No lenders added yet',
-                        style: const TextStyle(fontSize: 16, color: AppTheme.textSecondary),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Tap "New Lender" to register an individual financier or institution.',
-                        style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
-                      ),
-                    ],
-                  ),
+                return AppEmptyState(
+                  icon: Icons.account_balance_outlined,
+                  title: _searchQuery.isNotEmpty ? 'No matching lenders' : 'No lenders added yet',
+                  description: _searchQuery.isNotEmpty
+                      ? 'Try searching by a different financier name, phone, or ID.'
+                      : 'Tap "New Lender" to register an individual financier or institution.',
+                  actionLabel: _searchQuery.isNotEmpty ? 'Clear Search' : '+ New Lender',
+                  onAction: () {
+                    if (_searchQuery.isNotEmpty) {
+                      _searchController.clear();
+                    } else {
+                      _openAddLenderDialog();
+                    }
+                  },
                 );
               }
 
@@ -277,15 +274,16 @@ class _LenderListScreenState extends State<LenderListScreen> {
   Widget _buildLenderCard(Lender lender) {
     final isInstitution = lender.isInstitution;
 
-    return Card(
+    return AppCard(
       margin: const EdgeInsets.only(bottom: 8),
+      onTap: () async {
+        await AppNavigator.navigate(
+          context,
+          LenderDetailRoute(lender.id),
+        );
+      },
       child: ListTile(
-        onTap: () async {
-          await AppNavigator.navigate(
-            context,
-            LenderDetailRoute(lender.id),
-          );
-        },
+        contentPadding: EdgeInsets.zero,
         leading: CircleAvatar(
           backgroundColor: isInstitution
               ? AppTheme.accentCyan.withValues(alpha: 0.15)
@@ -304,19 +302,9 @@ class _LenderListScreenState extends State<LenderListScreen> {
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: AppTheme.badgeDecoration(
-                isInstitution ? AppTheme.accentCyan : AppTheme.emerald,
-              ),
-              child: Text(
-                lender.lenderType.displayName,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: isInstitution ? AppTheme.accentCyan : AppTheme.emerald,
-                ),
-              ),
+            AppStatusBadge(
+              label: lender.lenderType.displayName,
+              color: isInstitution ? AppTheme.accentCyan : AppTheme.emerald,
             ),
           ],
         ),

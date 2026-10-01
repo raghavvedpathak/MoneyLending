@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../core/di/injection.dart';
+import '../core/navigation/app_routes.dart';
 import '../core/notifications/overdue_notification_service.dart';
 import '../core/ui/theme/app_theme.dart';
 import '../features/customers/customers.dart';
@@ -67,7 +69,7 @@ class _AppShellState extends State<AppShell> {
           children: _screens,
         );
 
-    return LayoutBuilder(
+    final shell = LayoutBuilder(
       builder: (context, constraints) {
         final isTabletOrWide = constraints.maxWidth >= 720;
 
@@ -163,6 +165,30 @@ class _AppShellState extends State<AppShell> {
           ),
         );
       },
+    );
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyN, control: true): () {
+          AppNavigator.navigate(context, const AddEntryRoute());
+        },
+        const SingleActivator(LogicalKeyboardKey.digit1, control: true): () {
+          _onDestinationSelected(0);
+        },
+        const SingleActivator(LogicalKeyboardKey.digit2, control: true): () {
+          _onDestinationSelected(1);
+        },
+        const SingleActivator(LogicalKeyboardKey.digit3, control: true): () {
+          _onDestinationSelected(2);
+        },
+        const SingleActivator(LogicalKeyboardKey.digit4, control: true): () {
+          _onDestinationSelected(3);
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: shell,
+      ),
     );
   }
 }

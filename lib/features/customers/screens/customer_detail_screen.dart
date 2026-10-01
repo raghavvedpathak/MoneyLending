@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/calculations/calculations.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/navigation/app_routes.dart';
-import '../../../core/ui/formatters/currency_formatter.dart';
 import '../../../core/ui/formatters/id_formatter.dart';
-import '../../../core/ui/theme/app_theme.dart';
+import '../../../core/ui/theme/app_ui.dart';
 import '../../../core/utils/app_date_formatter.dart';
 import '../../../domain/domain.dart';
 import '../../../presentation/widgets/add_edit_record_bottom_sheet.dart';
@@ -73,7 +72,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         title: const Text('Delete Borrower'),
         content: Text(
           'Are you sure you want to delete ${customer.name} (${AppIdFormatter.formatCustomerId(customer.displayId)})?\n\n'
-          'The borrower ID will be permanently retired (FIX-ID-REUSE-1) and never reissued.\n\n'
+          'The borrower ID will be permanently archived and cannot be reused.\n\n'
           'Borrowers with active or settled records cannot be deleted.',
         ),
         actions: [
@@ -323,14 +322,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 builder: (context) {
                   final givenRecords = state.records.where((r) => r.record.isGiven).toList();
                   if (givenRecords.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32),
-                      child: Center(
-                        child: Text(
-                          'No ledger records found for this borrower.',
-                          style: TextStyle(color: AppTheme.textSecondary),
-                        ),
-                      ),
+                    return AppEmptyState(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'No Ledger Records Found',
+                      description: 'Tap "+ New Loan" below to issue the first loan to ${customer.name}.',
                     );
                   }
                   return Column(
@@ -390,7 +385,12 @@ class _StatCard extends StatelessWidget {
             fit: BoxFit.scaleDown,
             child: Text(
               value,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: color,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ],
